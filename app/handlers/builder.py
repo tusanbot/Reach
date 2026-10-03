@@ -79,7 +79,17 @@ async def receive_data(message: Message, state: FSMContext):
         return
     data = await state.get_data()
     kind = data.get("kind","table")
-    await state.update_data(headers=table.headers, rows=table.rows, title=TITLES[kind], subtitle="", footer="", style="classic", show_index=(kind=="ranking"), align="left")
+    template = data.get("template_config") or {}
+    await state.update_data(
+        headers=table.headers,
+        rows=table.rows,
+        title=template.get("title", TITLES[kind]),
+        subtitle=template.get("subtitle", ""),
+        footer=template.get("footer", ""),
+        style=template.get("style", "classic"),
+        show_index=bool(template.get("show_index", kind == "ranking")),
+        align=template.get("align", "left"),
+    )
     await state.set_state(BuilderState.preview)
     await message.answer(_render(await state.get_data()), reply_markup=preview_menu())
 
