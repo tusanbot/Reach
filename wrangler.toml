@@ -1,6 +1,7 @@
 name = "reach"
 main = "src/worker.ts"
 compatibility_date = "2026-10-03"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
