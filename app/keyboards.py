@@ -7,6 +7,9 @@ def main_menu():
         [InlineKeyboardButton(text="📚 قالب‌های من", callback_data="templates:list"), InlineKeyboardButton(text="ℹ️ راهنما", callback_data="help")],
     ])
 
+def import_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="ارسال فایل", callback_data="file:upload")],[InlineKeyboardButton(text="بازگشت", callback_data="builder:table")]])
+
 def preview_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ ساخت پیام", callback_data="builder:publish"), InlineKeyboardButton(text="✏️ ویرایش", callback_data="builder:editor")],
