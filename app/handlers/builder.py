@@ -177,8 +177,8 @@ async def help_handler(callback:CallbackQuery):
 @router.callback_query(F.data.startswith("adv:"))
 async def advanced_actions(callback:CallbackQuery,state:FSMContext):
     data=await state.get_data(); layout=normalize_layout(data.get("layout"),data.get("kind","table")); parts=callback.data.split(":"); action=parts[1]
-    if action=="add": await callback.answer(); await callback.message.edit_text("➕ <b>افزودن بخش</b>\\n\\nنوع بخش را انتخاب کن:",reply_markup=block_add_menu()); return
-    if action=="add" and len(parts)>2: return
+    if action=="add" and len(parts)==2:
+        await callback.answer(); await callback.message.edit_text("➕ <b>افزودن بخش</b>\\n\\nنوع بخش را انتخاب کن:",reply_markup=block_add_menu()); return
     if action in {"up","down","delete","edit"}:
         try:i=int(parts[2])
         except (ValueError,IndexError): await callback.answer("بخش نامعتبر است",show_alert=True); return
