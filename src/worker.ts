@@ -197,6 +197,12 @@ async function handleUpdate(env:Env,update:any) {
       } else if(action==="advanced") {
         await saveSession(env,user.id,"waiting_data",{kind:"table",advanced:true});
         await send(env,chat,"✨ <b>پیام پیشرفته</b>\n\nداده‌های جدول را با | جدا کن یا یک فایل CSV/TXT/XLSX بفرست.");
+      } else if(action==="style") {
+        await send(env,chat,"🎨 <b>قالب پیام</b>\n\nیک سبک را انتخاب کن:",{inline_keyboard:[
+          [{text:"📦 کلاسیک",callback_data:"style:classic"},{text:"✨ تمیز",callback_data:"style:clean"}],
+          [{text:"🏆 مسابقاتی",callback_data:"style:competition"}],
+          [{text:"↩️ بازگشت",callback_data:"builder:preview"}]
+        ]});
       } else if(action==="blocks" && session) {
         const layout=normalizeLayout(session.data.layout,session.data.kind);
         const rows=layout.map((b:any,i)=>[{text:(i+1)+" · "+({header:"🏷 سربرگ",text:"📝 متن",table:"📊 جدول",stats:"📈 آمار",highlight:"⭐ برجسته",separator:"➖ جداکننده",footer:"📌 پاورقی"}[b.type]||"بخش"),callback_data:"adv:edit:"+i},{text:"⬆️",callback_data:"adv:up:"+i},{text:"⬇️",callback_data:"adv:down:"+i},{text:"🗑",callback_data:"adv:delete:"+i}]);
