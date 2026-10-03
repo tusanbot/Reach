@@ -94,7 +94,21 @@ async def editor_actions(callback: CallbackQuery,state:FSMContext):
 
 @router.message(BuilderState.edit_value)
 async def receive_edit_value(message:Message,state:FSMContext):
-    data=await state.get_data(); field=data.get("edit_field"); value=(message.text or "").strip(); value="" if value=="-" else value
+    data=await state.get_data()
+    if data.get("adv_field") is not None:
+        layout=normalize_layout(data.get("layout"),data.get("kind","table")); i=int(data.get("adv_index",0)); field=data.get("adv_field"); value=(message.text or "").strip()
+        if not 0<=i<len(layout): await message.answer("⚠️ بخش پیدا نشد."); return
+        if field=="items":
+            items=[]
+            for line in value.splitlines():
+                cells=[x.strip() for x in line.split("|",1)]
+                if len(cells)==2 and cells[0]: items.append({"label":cells[0],"value":cells[1]})
+            if not items: await message.answer("⚠️ حداقل یک آیتم معتبر وارد کن."); return
+            layout[i]["items"]=items
+        else: layout[i][field]="" if value=="-" else value
+        await state.update_data(layout=layout,adv_index=None,adv_field=None); await state.set_state(BuilderState.preview)
+        await message.answer("✅ بخش به‌روزرسانی شد.",reply_markup=preview_menu(True)); return
+    field=data.get("edit_field"); value=(message.text or "").strip(); value="" if value=="-" else value
     try:
         if field in {"title","subtitle","footer"}: await state.update_data(**{field:value})
         elif field=="headers":
@@ -184,21 +198,3 @@ async def advanced_actions(callback:CallbackQuery,state:FSMContext):
         prompt="📝 مقدار جدید را بفرست."
         if field=="items": prompt="📈 آیتم‌های آمار را هر خط به شکل «عنوان | مقدار» بفرست. مثال:\\n<b>برد | 18</b>\\n<b>امتیاز | 1250</b>\\nبرای {{count}} از تعداد ردیف‌ها استفاده کن."
         await callback.message.answer(prompt); return
-
-@router.message(BuilderState.edit_value, F.text)
-async def advanced_edit_value(message:Message,state:FSMContext):
-    data=await state.get_data()
-    if data.get("adv_field") is None:
-        return await receive_edit_value(message,state)
-    layout=normalize_layout(data.get("layout"),data.get("kind","table")); i=int(data.get("adv_index",0)); field=data.get("adv_field"); value=(message.text or "").strip()
-    if not 0<=i<len(layout): await message.answer("⚠️ بخش پیدا نشد."); return
-    if field=="items":
-        items=[]
-        for line in value.splitlines():
-            cells=[x.strip() for x in line.split("|",1)]
-            if len(cells)==2 and cells[0]: items.append({"label":cells[0],"value":cells[1]})
-        if not items: await message.answer("⚠️ حداقل یک آیتم معتبر وارد کن."); return
-        layout[i]["items"]=items
-    else: layout[i][field]="" if value=="-" else value
-    await state.update_data(layout=layout,adv_index=None,adv_field=None); await state.set_state(BuilderState.preview)
-    await message.answer("✅ بخش به‌روزرسانی شد.",reply_markup=preview_menu(True))
