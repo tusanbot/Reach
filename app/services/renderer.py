@@ -15,11 +15,17 @@ def render_table(table: ParsedTable, title: str | None = None, footer: str | Non
     spec = STYLES.get(style, STYLES["classic"])
     matrix = [table.headers, *table.rows]
     widths = [max(len(row[i]) for row in matrix) for i in range(len(table.headers))]
+
     def border(parts):
         left, joint, right = parts
         return left + joint.join(spec["line"] * (width + 2) for width in widths) + right
+
     def row(values):
-        return spec["cell"] + spec["cell"].join(f" {_fit(value, widths[i])} " for i, value in enumerate(values)) + spec["cell"]
+        safe_values = [escape(value) for value in values]
+        return spec["cell"] + spec["cell"].join(
+            f" {_fit(value, widths[i])} " for i, value in enumerate(safe_values)
+        ) + spec["cell"]
+
     output = []
     if title:
         output += [f"{spec['title']} <b>{escape(title)}</b>", ""]
