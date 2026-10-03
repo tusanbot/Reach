@@ -1,0 +1,3 @@
+BOT_TOKEN=your_telegram_bot_token
+WEBHOOK_SECRET=replace_with_a_long_random_secret
+WORKER_URL=https://reach.example.workers.dev
