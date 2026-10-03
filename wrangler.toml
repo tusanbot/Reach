@@ -9,7 +9,7 @@ ENVIRONMENT = "production"
 [[d1_databases]]
 binding = "DB"
 database_name = "reach"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "3be84630-6207-4138-8ac5-1654aed293b4"
 migrations_dir = "migrations"
 
 [observability]
