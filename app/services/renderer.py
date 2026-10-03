@@ -11,27 +11,38 @@ def _fit(value: str, width: int) -> str:
     value = value[:width]
     return value + " " * max(0, width - len(value))
 
-def render_table(table: ParsedTable, title: str | None = None, footer: str | None = None, style: str = "classic") -> str:
+def render_message(headers, rows, title="", subtitle="", footer="", style="classic", show_index=False):
+    headers = list(headers)
+    rows = [list(row) for row in rows]
+    if show_index:
+        headers = ["#", *headers]
+        rows = [[str(i), *row] for i, row in enumerate(rows, 1)]
+
     spec = STYLES.get(style, STYLES["classic"])
-    matrix = [table.headers, *table.rows]
-    widths = [max(len(row[i]) for row in matrix) for i in range(len(table.headers))]
+    matrix = [headers, *rows]
+    widths = [max(len(row[i]) for row in matrix) for i in range(len(headers))]
 
     def border(parts):
         left, joint, right = parts
         return left + joint.join(spec["line"] * (width + 2) for width in widths) + right
 
     def row(values):
-        safe_values = [escape(value) for value in values]
-        return spec["cell"] + spec["cell"].join(
-            f" {_fit(value, widths[i])} " for i, value in enumerate(safe_values)
-        ) + spec["cell"]
+        safe = [escape(str(v)) for v in values]
+        return spec["cell"] + spec["cell"].join(f" {_fit(v, widths[i])} " for i, v in enumerate(safe)) + spec["cell"]
 
     output = []
     if title:
-        output += [f"{spec['title']} <b>{escape(title)}</b>", ""]
-    output += [border(spec["top"]), row(table.headers), border(spec["mid"])]
-    output += [row(r) for r in table.rows]
+        output.append(f"{spec['title']} <b>{escape(title)}</b>")
+    if subtitle:
+        output.append(escape(subtitle))
+    if title or subtitle:
+        output.append("")
+    output.extend([border(spec["top"]), row(headers), border(spec["mid"])])
+    output.extend(row(r) for r in rows)
     output.append(border(spec["bottom"]))
     if footer:
-        output += ["", escape(footer)]
+        output.extend(["", escape(footer)])
     return "\n".join(output)
+
+def render_table(table: ParsedTable, title=None, footer=None, style="classic"):
+    return render_message(table.headers, table.rows, title=title or "", footer=footer or "", style=style)
