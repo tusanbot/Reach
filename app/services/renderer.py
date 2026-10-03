@@ -7,11 +7,17 @@ STYLES = {
     "competition": {"title": "🏆", "top": ("╔", "╦", "╗"), "mid": ("╠", "╬", "╣"), "bottom": ("╚", "╩", "╝"), "line": "═", "cell": "║"},
 }
 
-def _fit(value: str, width: int) -> str:
+def _fit(value: str, width: int, align: str = "left") -> str:
     value = value[:width]
-    return value + " " * max(0, width - len(value))
+    gap = max(0, width - len(value))
+    if align == "right":
+        return " " * gap + value
+    if align == "center":
+        left = gap // 2
+        return " " * left + value + " " * (gap - left)
+    return value + " " * gap
 
-def render_message(headers, rows, title="", subtitle="", footer="", style="classic", show_index=False):
+def render_message(headers, rows, title="", subtitle="", footer="", style="classic", show_index=False, align="left"):
     headers = list(headers)
     rows = [list(row) for row in rows]
     if show_index:
@@ -20,7 +26,7 @@ def render_message(headers, rows, title="", subtitle="", footer="", style="class
 
     spec = STYLES.get(style, STYLES["classic"])
     matrix = [headers, *rows]
-    widths = [max(len(row[i]) for row in matrix) for i in range(len(headers))]
+    widths = [max(len(str(row[i])) for row in matrix) for i in range(len(headers))]
 
     def border(parts):
         left, joint, right = parts
@@ -28,7 +34,9 @@ def render_message(headers, rows, title="", subtitle="", footer="", style="class
 
     def row(values):
         safe = [escape(str(v)) for v in values]
-        return spec["cell"] + spec["cell"].join(f" {_fit(v, widths[i])} " for i, v in enumerate(safe)) + spec["cell"]
+        return spec["cell"] + spec["cell"].join(
+            f" {_fit(v, widths[i], align)} " for i, v in enumerate(safe)
+        ) + spec["cell"]
 
     output = []
     if title:
