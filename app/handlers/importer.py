@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.handlers.builder import BuilderState
+from app.services.layout import default_layout, migrate_legacy
 
 router = Router()
 
@@ -75,7 +76,9 @@ async def _apply(state, table):
         style=config.get("style", "classic"),
         show_index=bool(config.get("show_index", kind == "ranking")),
         align=config.get("align", "left"),
-        importing=False
+        importing=False,
+        advanced=bool(data.get("advanced", config.get("advanced", False))),
+        layout=migrate_legacy(config, kind) if (data.get("advanced") or config.get("advanced") or config.get("layout")) else None
     )
     await state.set_state(BuilderState.preview)
 
@@ -110,11 +113,11 @@ async def receive_file(message, state: FSMContext):
         else:
             table = _parse_text(_decode(payload))
         await _apply(state, table)
-        from app.services.renderer import render_message
-        d = await state.get_data()
-        preview = render_message(d["headers"], d["rows"], title=d["title"], style=d["style"], show_index=d["show_index"], align=d["align"])
+        from app.services.renderer import render_message, render_layout
         from app.keyboards import preview_menu
-        await message.answer(preview, reply_markup=preview_menu())
+        d = await state.get_data()
+        preview = render_layout(d["layout"], d["headers"], d["rows"], style=d["style"], show_index=d["show_index"], align=d["align"]) if d.get("advanced") else render_message(d["headers"], d["rows"], title=d["title"], subtitle=d.get("subtitle",""), footer=d.get("footer",""), style=d["style"], show_index=d["show_index"], align=d["align"])
+        await message.answer(preview, reply_markup=preview_menu(bool(d.get("advanced"))))
     except Exception as exc:
         await message.answer(f"⚠️ ورود فایل انجام نشد: {exc}")
 
@@ -130,12 +133,12 @@ async def select_sheet(callback, state: FSMContext):
         return
     await _apply(state, table)
     await state.update_data(import_sheets=None)
-    from app.services.renderer import render_message
+    from app.services.renderer import render_message, render_layout
     from app.keyboards import preview_menu
     d = await state.get_data()
-    preview = render_message(d["headers"], d["rows"], title=d["title"], style=d["style"], show_index=d["show_index"], align=d["align"])
+    preview = render_layout(d["layout"], d["headers"], d["rows"], style=d["style"], show_index=d["show_index"], align=d["align"]) if d.get("advanced") else render_message(d["headers"], d["rows"], title=d["title"], subtitle=d.get("subtitle",""), footer=d.get("footer",""), style=d["style"], show_index=d["show_index"], align=d["align"])
     await callback.answer("Sheet انتخاب شد")
-    await callback.message.edit_text(preview, reply_markup=preview_menu())
+    await callback.message.edit_text(preview, reply_markup=preview_menu(bool(d.get("advanced"))))
 
 @router.callback_query(F.data == "file:cancel")
 async def cancel_file(callback, state: FSMContext):
