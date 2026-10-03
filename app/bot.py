@@ -30,8 +30,8 @@ async def run():
     dp.message.middleware(middleware)
     dp.callback_query.middleware(middleware)
     dp.include_router(start_router)
-    dp.include_router(builder_router)
     dp.include_router(importer_router)
+    dp.include_router(builder_router)
     dp.include_router(templates_router)
     await bot.set_my_commands([
         BotCommand(command="start", description="شروع کار با Reach")
