@@ -143,8 +143,23 @@ function previewKeyboard(advanced=false) {
 }
 
 async function tg(env:Env,method:string,payload:any) {
-  const r=await fetch(API(env)+"/"+method,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
-  return r.json();
+  const r=await fetch(API(env)+"/"+method,{
+    method:"POST",
+    headers:{"content-type":"application/json"},
+    body:JSON.stringify(payload)
+  });
+  const raw=await r.text();
+  let data:any;
+  try {
+    data=JSON.parse(raw);
+  } catch {
+    throw new Error(`Telegram API ${method} returned invalid JSON (HTTP ${r.status})`);
+  }
+  if(!r.ok || data?.ok!==true) {
+    const description=data?.description || "unknown Telegram API error";
+    throw new Error(`Telegram API ${method} failed (HTTP ${r.status}): ${description}`);
+  }
+  return data;
 }
 async function answer(env:Env,id:string,text="") { return tg(env,"answerCallbackQuery",{callback_query_id:id,text}); }
 async function send(env:Env,chat:number,text:string,reply_markup?:any) {
@@ -359,9 +374,11 @@ export default {
         const update=await request.json();
         console.log("telegram update received", {
           update_id:update?.update_id,
-          type:update?.message ? "message" : update?.callback_query ? "callback_query" : "other"
+          type:update?.message ? "message" : update?.callback_query ? "callback_query" : "other",
+          chat_id:update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id
         });
         await handleUpdate(env,update);
+        console.log("telegram update handled", { update_id:update?.update_id });
       } catch (error) {
         console.error("telegram webhook handler failed", error);
       }
