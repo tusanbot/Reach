@@ -9,13 +9,16 @@ def main_menu():
     ])
 
 def import_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="ارسال فایل", callback_data="file:upload")],[InlineKeyboardButton(text="بازگشت", callback_data="builder:table")]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📎 ارسال فایل", callback_data="file:upload")],
+        [InlineKeyboardButton(text="↩️ بازگشت", callback_data="builder:table")],
+    ])
 
 def preview_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ ساخت پیام", callback_data="builder:publish"), InlineKeyboardButton(text="✏️ ویرایش", callback_data="builder:editor")],
         [InlineKeyboardButton(text="🎨 قالب", callback_data="builder:style"), InlineKeyboardButton(text="⚙️ تنظیمات", callback_data="builder:settings")],
-        [InlineKeyboardButton(text="❌ لغو", callback_data="builder:cancel")],
+        [InlineKeyboardButton(text="💾 ذخیره قالب", callback_data="templates:save"), InlineKeyboardButton(text="❌ لغو", callback_data="builder:cancel")],
     ])
 
 def editor_menu():
