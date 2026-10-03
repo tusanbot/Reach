@@ -1,0 +1,46 @@
+name: Set Telegram Webhook
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  set-webhook:
+    name: Register and verify webhook
+    runs-on: ubuntu-latest
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      WORKER_URL: ${{ secrets.WORKER_URL }}
+      WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+
+          for name in BOT_TOKEN WORKER_URL WEBHOOK_SECRET; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is not configured in GitHub Actions Secrets."
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: Register and verify Telegram webhook
+        shell: bash
+        run: node scripts/set-webhook.mjs
