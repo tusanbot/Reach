@@ -6,6 +6,8 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.handlers.builder import BuilderState
+
 router = Router()
 
 TITLES = {"table": "📊 جدول", "ranking": "🏆 رتبه‌بندی", "stats": "📈 آمار", "custom": "📝 پیام سفارشی"}
@@ -19,7 +21,7 @@ def _decode(raw):
     raise ValueError("encoding فایل قابل تشخیص نیست.")
 
 def _clean(rows):
-    rows = [[str(x or "").strip() for x in row] for row in rows]
+    rows = [[("" if x is None else str(x)).strip() for x in row] for row in rows]
     rows = [row for row in rows if any(row)]
     if len(rows) < 2:
         raise ValueError("فایل باید حداقل یک ردیف عنوان و یک ردیف داده داشته باشد.")
@@ -64,10 +66,15 @@ def _menu(names):
 async def _apply(state, table):
     data = await state.get_data()
     kind = data.get("kind", "table")
+    config = data.get("template_config") or {}
     await state.update_data(
         headers=table["headers"], rows=table["rows"],
-        title=TITLES.get(kind, "📊 جدول"), subtitle="", footer="",
-        style="classic", show_index=(kind == "ranking"), align="left",
+        title=config.get("title", TITLES.get(kind, "📊 جدول")),
+        subtitle=config.get("subtitle", ""),
+        footer=config.get("footer", ""),
+        style=config.get("style", "classic"),
+        show_index=bool(config.get("show_index", kind == "ranking")),
+        align=config.get("align", "left"),
         importing=False
     )
     await state.set_state(BuilderState.preview)
