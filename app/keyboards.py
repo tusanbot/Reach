@@ -4,7 +4,8 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 ساخت جدول", callback_data="builder:table"), InlineKeyboardButton(text="🏆 رتبه‌بندی", callback_data="builder:ranking")],
         [InlineKeyboardButton(text="📈 آمار", callback_data="builder:stats"), InlineKeyboardButton(text="📝 پیام سفارشی", callback_data="builder:custom")],
-        [InlineKeyboardButton(text="📚 قالب‌های من", callback_data="templates:list"), InlineKeyboardButton(text="ℹ️ راهنما", callback_data="help")],
+        [InlineKeyboardButton(text="📥 ورود فایل", callback_data="file:upload"), InlineKeyboardButton(text="📚 قالب‌های من", callback_data="templates:list")],
+        [InlineKeyboardButton(text="ℹ️ راهنما", callback_data="help")],
     ])
 
 def import_menu():
