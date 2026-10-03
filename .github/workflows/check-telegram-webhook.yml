@@ -1,0 +1,70 @@
+name: Check Telegram Webhook
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-webhook:
+    name: Inspect Telegram webhook status
+    runs-on: ubuntu-latest
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+
+    steps:
+      - name: Validate bot token
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${BOT_TOKEN:-}" ]]; then
+            echo "::error::BOT_TOKEN is not configured in GitHub Actions Secrets."
+            exit 1
+          fi
+
+      - name: Get Telegram webhook info
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          response="$(curl -fsS --retry 2 "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo")"
+
+          node - "$response" <<'NODE'
+          const raw = process.argv[2];
+          const data = JSON.parse(raw);
+
+          if (!data.ok) {
+            console.error("Telegram API error:", data.description || "unknown error");
+            process.exit(1);
+          }
+
+          const r = data.result || {};
+
+          console.log("Webhook URL:", r.url || "(not set)");
+          console.log("Webhook verified by Telegram API: yes");
+          console.log("Pending updates:", r.pending_update_count ?? 0);
+          console.log("Max connections:", r.max_connections ?? "(default)");
+          console.log("IP address:", r.ip_address || "(not reported)");
+
+          if (r.last_error_message) {
+            console.log("Last Telegram delivery error:", r.last_error_message);
+            console.log(
+              "Last Telegram delivery error date:",
+              r.last_error_date
+                ? new Date(r.last_error_date * 1000).toISOString()
+                : "(unknown)"
+            );
+          } else {
+            console.log("Last Telegram delivery error: none reported");
+          }
+
+          if (r.last_synchronization_error_date) {
+            console.log(
+              "Last synchronization error date:",
+              new Date(r.last_synchronization_error_date * 1000).toISOString()
+            );
+          } else {
+            console.log("Last synchronization error date: none reported");
+          }
+          NODE
