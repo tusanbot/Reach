@@ -73,6 +73,8 @@ async def save_template(message: Message, state: FSMContext, db: Database):
         "align": data.get("align", "left"),
         "headers": data.get("headers", []),
         "kind": data.get("kind", "table"),
+        "advanced": bool(data.get("advanced", False)),
+        "layout": data.get("layout"),
     }
     template_id = await db.create_template(message.from_user.id, name, config["kind"], config)
     await state.update_data(template_id=template_id)
@@ -103,6 +105,7 @@ async def use_template(callback: CallbackQuery, state: FSMContext, db: Database)
         template_name=item["name"],
         template_config=config,
         importing=False,
+        advanced=bool(config.get("advanced", bool(config.get("layout")))),
     )
     await state.set_state(BuilderState.waiting_data)
     await callback.answer("قالب انتخاب شد")
