@@ -189,6 +189,15 @@ async function handleUpdate(env:Env,update:any) {
     await answer(env,id);
     const session=await getSession(env,user.id);
     if(data==="help") { await send(env,chat,"<b>ℹ️ راهنمای Reach</b>\n\nReach برای ساخت پیام‌های حرفه‌ای و قابل فوروارد تلگرام است. در پیام پیشرفته می‌توانی چند بخش را داخل یک پیام واحد بچینی.",mainKeyboard()); return; }
+    if(data.startsWith("style:") && session) {
+      const style=data.split(":")[1];
+      if(["classic","clean","competition"].includes(style)) {
+        const d={...session.data,style};
+        await saveSession(env,user.id,"preview",d);
+        await showPreview(env,chat,cb.message.message_id,d);
+      }
+      return;
+    }
     if(data.startsWith("builder:")) {
       const action=data.split(":")[1];
       if(["table","ranking","stats","custom"].includes(action)) {
