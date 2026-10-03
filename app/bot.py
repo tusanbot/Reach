@@ -5,6 +5,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 from app.config import get_settings
 from app.handlers.builder import router as builder_router
+from app.handlers.importer import router as importer_router
 from app.handlers.start import router as start_router
 from app.handlers.templates import router as templates_router
 from app.storage.db import Database
@@ -30,6 +31,7 @@ async def run():
     dp.callback_query.middleware(middleware)
     dp.include_router(start_router)
     dp.include_router(builder_router)
+    dp.include_router(importer_router)
     dp.include_router(templates_router)
     await bot.set_my_commands([
         BotCommand(command="start", description="شروع کار با Reach")
