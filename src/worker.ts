@@ -333,12 +333,38 @@ async function handleUpdate(env:Env,update:any) {
 export default {
   async fetch(request:Request,env:Env):Promise<Response> {
     const url=new URL(request.url);
-    if(request.method==="GET" && url.pathname==="/health") return Response.json({ok:true,service:"reach",runtime:"cloudflare-workers"});
+    if(request.method==="GET" && url.pathname==="/health") {
+      let dbOk=false;
+      try {
+        await env.DB.prepare("SELECT 1 AS ok").first();
+        dbOk=true;
+      } catch (error) {
+        console.error("health database check failed", error);
+      }
+      return Response.json({
+        ok: dbOk && Boolean(env.BOT_TOKEN) && Boolean(env.WEBHOOK_SECRET),
+        service:"reach",
+        runtime:"cloudflare-workers",
+        config:{
+          botToken:Boolean(env.BOT_TOKEN),
+          webhookSecret:Boolean(env.WEBHOOK_SECRET),
+          database:dbOk
+        }
+      });
+    }
     if(request.method==="POST" && url.pathname==="/webhook") {
       const secret=request.headers.get("X-Telegram-Bot-Api-Secret-Token");
       if(!secret || secret!==env.WEBHOOK_SECRET) return new Response("Unauthorized",{status:401});
-      const update=await request.json();
-      await handleUpdate(env,update);
+      try {
+        const update=await request.json();
+        console.log("telegram update received", {
+          update_id:update?.update_id,
+          type:update?.message ? "message" : update?.callback_query ? "callback_query" : "other"
+        });
+        await handleUpdate(env,update);
+      } catch (error) {
+        console.error("telegram webhook handler failed", error);
+      }
       return new Response("ok");
     }
     return new Response("Reach Worker");
