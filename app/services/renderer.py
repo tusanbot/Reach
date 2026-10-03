@@ -54,3 +54,51 @@ def render_message(headers, rows, title="", subtitle="", footer="", style="class
 
 def render_table(table: ParsedTable, title=None, footer=None, style="classic"):
     return render_message(table.headers, table.rows, title=title or "", footer=footer or "", style=style)
+
+
+def render_layout(layout, headers, rows, style="classic", show_index=False, align="left"):
+    """Render a multi-block Telegram message into one safe HTML message."""
+    from app.services.layout import normalize_layout, with_derived_values
+    blocks = with_derived_values(normalize_layout(layout), rows)
+    parts = []
+    for block in blocks:
+        kind = block.get("type")
+        if kind == "header":
+            title = block.get("title", "")
+            subtitle = block.get("subtitle", "")
+            if title:
+                icon = STYLES.get(style, STYLES["classic"])["title"]
+                parts.append(f"{icon} <b>{escape(str(title))}</b>")
+            if subtitle:
+                parts.append(escape(str(subtitle)))
+        elif kind == "text":
+            text = str(block.get("text", "")).strip()
+            if text:
+                parts.append(escape(text))
+        elif kind == "table":
+            parts.append(render_message(headers, rows, style=style, show_index=show_index, align=align))
+        elif kind == "stats":
+            items = block.get("items", [])
+            lines = ["📈 <b>آمار</b>"]
+            for item in items:
+                label = escape(str(item.get("label", "")))
+                value = escape(str(item.get("value", "")))
+                if label or value:
+                    lines.append(f"• <b>{label}</b>: {value}")
+            if len(lines) > 1:
+                parts.append("\\n".join(lines))
+        elif kind == "highlight":
+            title = str(block.get("title", "")).strip()
+            text = str(block.get("text", "")).strip()
+            if title or text:
+                lines = ["⭐ <b>" + escape(title) + "</b>" if title else "⭐"]
+                if text:
+                    lines.append(escape(text))
+                parts.append("\\n".join(lines))
+        elif kind == "separator":
+            parts.append("────────────")
+        elif kind == "footer":
+            text = str(block.get("text", "")).strip()
+            if text:
+                parts.append("📌 " + escape(text))
+    return "\\n\\n".join(part for part in parts if part).strip()
