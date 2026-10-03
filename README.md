@@ -51,13 +51,13 @@ npm run deploy
 
 ### 5. Set the Telegram webhook
 
-After deployment, set Telegram's webhook to:
+After deployment, set Telegram's webhook with the included helper:
 
-```text
-https://YOUR_WORKER_DOMAIN/webhook
+```bash
+BOT_TOKEN="..." WORKER_URL="https://YOUR_WORKER_DOMAIN" WEBHOOK_SECRET="..." node scripts/set-webhook.mjs
 ```
 
-The request must include Telegram's webhook secret token configured in `WEBHOOK_SECRET`. Telegram delivers updates to the HTTPS webhook, so Reach no longer needs polling or a continuously running server.
+The helper calls Telegram's `setWebhook` API and configures the secret token. Telegram then sends HTTPS POST updates directly to the Worker. Telegram delivers updates to the HTTPS webhook, so Reach no longer needs polling or a continuously running server.
 
 Health check:
 
