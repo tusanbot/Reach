@@ -70,15 +70,16 @@ async def _apply(state, table):
         style="classic", show_index=(kind == "ranking"), align="left",
         importing=False
     )
-    await state.set_state("preview")
+    await state.set_state(BuilderState.preview)
 
 @router.callback_query(F.data == "file:upload")
 async def ask_file(callback, state: FSMContext):
     await callback.answer()
     await state.update_data(importing=True)
+    await state.set_state(BuilderState.waiting_data)
     await callback.message.answer("📎 فایل CSV، TXT یا XLSX را ارسال کن. ردیف اول عنوان ستون‌هاست.")
 
-@router.message(F.document)
+@router.message(BuilderState.waiting_data, F.document)
 async def receive_file(message, state: FSMContext):
     data = await state.get_data()
     if not data.get("importing"):
