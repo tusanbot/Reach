@@ -83,7 +83,7 @@ async def save_template(message: Message, state: FSMContext, db: Database):
     await message.answer(
         f"✅ قالب <b>{name}</b> ذخیره شد.\n\n"
         "ساختار قالب ذخیره شد و هر زمان بخوای می‌تونی داده‌های جدید رو روی همین ظاهر اجرا کنی.",
-        reply_markup=preview_menu(),
+        reply_markup=preview_menu(bool(data.get("advanced"))),
     )
 
 @router.callback_query(F.data.startswith("template:use:"))
