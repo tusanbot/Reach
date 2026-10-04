@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { Lang, LANGS, normalizeLang, tr } from "./i18n";
 
 interface Env {
   DB: D1Database;
@@ -6,6 +7,7 @@ interface Env {
   WEBHOOK_SECRET: string;
   DIAGNOSTIC_SECRET: string;
   ENVIRONMENT?: string;
+  ADMIN_USER_IDS?: string;
 }
 
 type Block =
@@ -18,6 +20,15 @@ type Block =
   | { type: "footer"; text: string };
 
 const API = (env: Env) => `https://api.telegram.org/bot${env.BOT_TOKEN}`;
+const OWNER_ID = 7918162941;
+function adminIds(env:Env) { return new Set([OWNER_ID,...String(env.ADMIN_USER_IDS||"").split(",").map(x=>Number(x.trim())).filter(Number.isFinite)]); }
+function isAdmin(env:Env,id:number) { return adminIds(env).has(id); }
+async function getLang(env:Env,id:number):Promise<Lang> { const row=await env.DB.prepare("SELECT language FROM users WHERE telegram_id=?").bind(id).first<any>(); return normalizeLang(row?.language); }
+async function setLang(env:Env,id:number,lang:Lang) { await env.DB.prepare("UPDATE users SET language=?,updated_at=CURRENT_TIMESTAMP WHERE telegram_id=?").bind(lang,id).run(); }
+function settingsKeyboard(lang:Lang) { return {inline_keyboard:[[{text:tr(lang,"language"),callback_data:"settings:language"}],[{text:tr(lang,"support"),callback_data:"support:start"}],[{text:tr(lang,"back"),callback_data:"home"}]]}; }
+function languageKeyboard(lang:Lang) { return {inline_keyboard:[[{text:"🇮🇷 فارسی",callback_data:"settings:setlang:fa"}],[{text:"🇬🇧 English",callback_data:"settings:setlang:en"}],[{text:"🇸🇦 العربية",callback_data:"settings:setlang:ar"}],[{text:tr(lang,"back"),callback_data:"settings"}]]}; }
+function adminKeyboard(lang:Lang) { return {inline_keyboard:[[{text:tr(lang,"broadcast"),callback_data:"admin:broadcast"}],[{text:tr(lang,"back"),callback_data:"home"}]]}; }
+
 
 async function runtimeLog(env: Env, level: string, event: string, data?: unknown) {
   try {
@@ -288,14 +299,16 @@ async function sendRichMessage(env:Env,chat:number,rich_message:any,reply_markup
   }
 }
 
-function mainKeyboard() {
-  return {inline_keyboard:[
-    [{text:"📊 ساخت جدول",callback_data:"builder:table"},{text:"🏆 رتبه‌بندی",callback_data:"builder:ranking"}],
-    [{text:"📈 آمار",callback_data:"builder:stats"},{text:"📝 پیام سفارشی",callback_data:"builder:custom"}],
-    [{text:"✨ پیام پیشرفته",callback_data:"builder:advanced"}],
-    [{text:"📥 ورود فایل",callback_data:"file:upload"},{text:"📚 قالب‌های من",callback_data:"templates:list"}],
-    [{text:"ℹ️ راهنما",callback_data:"help"}]
-  ]};
+function mainKeyboard(lang:Lang="fa",admin=false) {
+  const rows=[
+    [{text:tr(lang,"table"),callback_data:"builder:table"},{text:tr(lang,"ranking"),callback_data:"builder:ranking"}],
+    [{text:tr(lang,"stats"),callback_data:"builder:stats"},{text:tr(lang,"custom"),callback_data:"builder:custom"}],
+    [{text:tr(lang,"advanced"),callback_data:"builder:advanced"}],
+    [{text:tr(lang,"file"),callback_data:"file:upload"},{text:tr(lang,"templates"),callback_data:"templates:list"}],
+    [{text:"⚙️ "+tr(lang,"settings").replace(/<[^>]+>/g,""),callback_data:"settings"},{text:"ℹ️ "+tr(lang,"help").replace(/<[^>]+>/g,""),callback_data:"help"}]
+  ];
+  if(admin) rows.push([{text:tr(lang,"admin"),callback_data:"admin"}]);
+  return {inline_keyboard:rows};
 }
 
 function previewKeyboard(advanced=false) {
@@ -463,12 +476,32 @@ async function handleUpdate(env:Env,update:any) {
   const user=message?.from ?? cb?.from;
   if(!chat || !user) return;
   await upsertUser(env,user);
+  const lang=await getLang(env,user.id);
+  const admin=isAdmin(env,user.id);
 
   if(cb) {
     const id=cb.id, data=cb.data||"";
     await answer(env,id);
     const session=await getSession(env,user.id);
-    if(data==="help") { await send(env,chat,"<b>ℹ️ راهنمای Reach</b>\n\nReach برای ساخت پیام‌های حرفه‌ای و قابل فوروارد تلگرام است. در پیام پیشرفته می‌توانی چند بخش را داخل یک پیام واحد بچینی.",mainKeyboard()); return; }
+    if(data==="settings") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,tr(lang,"settings"),settingsKeyboard(lang)); return; }
+    if(data==="settings:language") { await edit(env,chat,cb.message.message_id,tr(lang,"chooseLanguage"),languageKeyboard(lang)); return; }
+    if(data.startsWith("settings:setlang:")) {
+      const selected=normalizeLang(data.split(":")[2]); await setLang(env,user.id,selected);
+      const next=selected; await edit(env,chat,cb.message.message_id,tr(next,"languageSaved"),mainKeyboard(next,admin)); return;
+    }
+    if(data==="support:start") { await saveSession(env,user.id,"support_message",{}); await send(env,chat,tr(lang,"supportPrompt"),{inline_keyboard:[[{text:tr(lang,"cancel"),callback_data:"support:cancel"}]]}); return; }
+    if(data==="support:cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,tr(lang,"supportCancel"),mainKeyboard(lang,admin)); return; }
+    if(data==="admin") {
+      if(!admin) { await answer(env,id,tr(lang,"adminOnly"),true); return; }
+      await edit(env,chat,cb.message.message_id,"🛠 <b>"+tr(lang,"admin").replace(/<[^>]+>/g,"")+"</b>",adminKeyboard(lang)); return;
+    }
+    if(data==="admin:broadcast") {
+      if(!admin) { await answer(env,id,tr(lang,"adminOnly"),true); return; }
+      await saveSession(env,user.id,"admin_broadcast",{}); await send(env,chat,tr(lang,"broadcastPrompt"),{inline_keyboard:[[{text:tr(lang,"cancel"),callback_data:"admin:cancel"}]]}); return;
+    }
+    if(data==="admin:cancel") { if(admin) { await clearSession(env,user.id); await send(env,chat,tr(lang,"cancel"),adminKeyboard(lang)); } return; }
+
+    if(data==="help") { await send(env,chat,tr(lang,"help"),mainKeyboard(lang,admin)); return; }
     if(data.startsWith("style:") && session) {
       const style=data.split(":")[1];
       if(["classic","clean","competition"].includes(style)) {
@@ -480,12 +513,12 @@ async function handleUpdate(env:Env,update:any) {
     }
     if(data.startsWith("rich:") && session) {
       const p=data.split(":"); const action=p[1];
-      if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard()); return; }
+      if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard(lang,admin)); return; }
       if(action==="restart") { await startSimpleRichBuilder(env,chat,user.id); return; }
       if(action==="publish") {
         const d=session.data; const rich=buildSimpleRichMessage(d);
         if(!rich.blocks.length) { await answer(env,id,"حداقل یک بخش از پیام را اضافه کن.",true); return; }
-        await clearSession(env,user.id); await sendSimpleRichMessage(env,chat,rich,d); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard()); return;
+        await clearSession(env,user.id); await sendSimpleRichMessage(env,chat,rich,d); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard(lang,admin)); return;
       }
       if(action==="edit") {
         const target=p[2];
@@ -539,12 +572,12 @@ async function handleUpdate(env:Env,update:any) {
         if(d.richBuilder) {
           const rich=buildSimpleRichMessage(d);
           if(!rich.blocks.length) { await answer(env,id,"حداقل یک بخش از پیام را اضافه کن.",true); return; }
-          await clearSession(env,user.id); await sendRichMessage(env,chat,rich,richBuilderButtons(d)); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard());
+          await clearSession(env,user.id); await sendRichMessage(env,chat,rich,richBuilderButtons(d)); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard(lang,admin));
         } else {
           const rich_message=buildRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind});
-          await clearSession(env,user.id); await sendRichMessage(env,chat,rich_message); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard());
+          await clearSession(env,user.id); await sendRichMessage(env,chat,rich_message); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard(lang,admin));
         }
-            } else if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard()); }
+            } else if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard(lang,admin)); }
       return;
     }
     if(data.startsWith("adv:") && session) {
@@ -578,7 +611,7 @@ async function handleUpdate(env:Env,update:any) {
       rows.push([{text:"↩️ بازگشت",callback_data:"home"}]);
       await edit(env,chat,cb.message.message_id,"📚 <b>قالب‌های من</b>\n\nیک قالب را انتخاب کن.",{inline_keyboard:rows.length>1?rows:[[ {text:"↩️ بازگشت",callback_data:"home"} ]]}); return;
     }
-    if(data==="home") { await edit(env,chat,cb.message.message_id,"🏠 <b>Reach</b>\n\nچه چیزی می‌سازی؟",mainKeyboard()); return; }
+    if(data==="home") { await edit(env,chat,cb.message.message_id,tr(lang,"home"),mainKeyboard(lang,admin)); return; }
     if(data==="templates:save" && session) {
       await saveSession(env,user.id,"template_name",session.data);
       await send(env,chat,"💾 نام قالب را بفرست."); return;
@@ -606,13 +639,66 @@ async function handleUpdate(env:Env,update:any) {
 
   if(message) {
     const session=await getSession(env,user.id);
-    if(message.text==="/start") { await send(env,chat,"🏠 <b>به Reach خوش اومدی</b>\n\nپیام‌های حرفه‌ای و قابل فوروارد بساز.",mainKeyboard()); return; }
+    if(message.text==="/start") { await send(env,chat,tr(lang,"welcome"),mainKeyboard(lang,admin)); return; }
+    if(session?.state==="support_message") {
+      if(message.text && ["لغو","cancel","إلغاء"].includes(message.text.trim().toLowerCase())) { await clearSession(env,user.id); await send(env,chat,tr(lang,"supportCancel"),mainKeyboard(lang,admin)); return; }
+      try {
+        const info=await send(env,OWNER_ID,
+          "🆘 <b>پیام جدید پشتیبانی</b>\n👤 "+esc(message.from?.first_name||"")+" "+(message.from?.username?"@"+esc(message.from.username):"")+
+          "\n🆔 <code>"+user.id+"</code>");
+        const ownerMessageId=Number(info.result?.message_id||0);
+        if(message.message_id) {
+          const copied=await tg(env,"copyMessage",{chat_id:OWNER_ID,from_chat_id:chat,message_id:message.message_id});
+          const copiedId=Number(copied.result?.message_id||0);
+          await env.DB.prepare("INSERT INTO support_messages(user_telegram_id,owner_message_id,user_message_id) VALUES(?,?,?)").bind(user.id,copiedId,message.message_id).run();
+        } else {
+          await env.DB.prepare("INSERT INTO support_messages(user_telegram_id,owner_message_id,user_message_id) VALUES(?,?,?)").bind(user.id,ownerMessageId,message.message_id??null).run();
+        }
+        await clearSession(env,user.id); await send(env,chat,tr(lang,"supportSent"),mainKeyboard(lang,admin));
+      } catch(error) {
+        await runtimeLog(env,"error","SUPPORT_FORWARD_ERROR",{user_id:user.id,message:error instanceof Error?error.message:String(error)});
+        await send(env,chat,"⚠️ "+tr(lang,"supportCancel"),mainKeyboard(lang,admin));
+      }
+      return;
+    }
+    if(session?.state==="admin_broadcast" && admin && (message.text || message.document || message.photo || message.video || message.audio || message.voice || message.animation)) {
+      if(message.text && ["لغو","cancel","إلغاء"].includes(message.text.trim().toLowerCase())) { await clearSession(env,user.id); await send(env,chat,tr(lang,"cancel"),adminKeyboard(lang)); return; }
+      const users=(await env.DB.prepare("SELECT telegram_id FROM users WHERE telegram_id<>? ORDER BY telegram_id").bind(OWNER_ID).all<any>()).results||[];
+      let sentCount=0, failedCount=0;
+      for(let i=0;i<users.length;i+=20) {
+        const batch=users.slice(i,i+20);
+        const results=await Promise.all(batch.map(async (row:any)=>{
+          try {
+            await tg(env,"copyMessage",{chat_id:Number(row.telegram_id),from_chat_id:chat,message_id:message.message_id,disable_notification:true});
+            return true;
+          } catch { return false; }
+        }));
+        sentCount+=results.filter(Boolean).length; failedCount+=results.length-results.filter(Boolean).length;
+        await new Promise(r=>setTimeout(r,700));
+      }
+      await clearSession(env,user.id);
+      await send(env,chat,tr(lang,"broadcastDone")+"\n\n📨 ارسال‌شده: <b>"+sentCount+"</b>\n⚠️ ناموفق: <b>"+failedCount+"</b>",adminKeyboard(lang));
+      return;
+    }
+    if(message.chat?.type==="private" && message.reply_to_message && isAdmin(env,user.id)) {
+      const target=await env.DB.prepare("SELECT user_telegram_id FROM support_messages WHERE owner_message_id=? ORDER BY id DESC LIMIT 1").bind(message.reply_to_message.message_id).first<any>();
+      if(target?.user_telegram_id) {
+        try {
+          await tg(env,"copyMessage",{chat_id:Number(target.user_telegram_id),from_chat_id:chat,message_id:message.message_id});
+          await send(env,chat,tr(lang,"supportReplySent"),adminKeyboard(lang));
+        } catch(error) {
+          await send(env,chat,"⚠️ ارسال پاسخ ناموفق بود.",adminKeyboard(lang));
+        }
+        return;
+      }
+    }
+
     if(session?.state==="template_name" && message.text) {
       const name=message.text.trim().slice(0,80);
       if(!name) return send(env,chat,"⚠️ نام قالب نمی‌تواند خالی باشد.");
       const cfg={...session.data,layout:session.data.layout??null};
       await env.DB.prepare("INSERT INTO templates(telegram_id,name,kind,config_json) VALUES(?,?,?,?) ON CONFLICT(telegram_id,name) DO UPDATE SET kind=excluded.kind,config_json=excluded.config_json").bind(user.id,name,cfg.kind??"table",JSON.stringify(cfg)).run();
-      await saveSession(env,user.id,"preview",session.data); await send(env,chat,"✅ قالب <b>"+esc(name)+"</b> ذخیره شد.",mainKeyboard()); return;
+      await saveSession(env,user.id,"preview",session.data); await send(env,chat,"✅ قالب <b>"+esc(name)+"</b> ذخیره شد.",mainKeyboard(lang,admin)); return;
     }
     if(message.document) {
       try {
