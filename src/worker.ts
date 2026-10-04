@@ -4,6 +4,7 @@ interface Env {
   DB: D1Database;
   BOT_TOKEN: string;
   WEBHOOK_SECRET: string;
+  DIAGNOSTIC_SECRET: string;
   ENVIRONMENT?: string;
 }
 
@@ -17,6 +18,61 @@ type Block =
   | { type: "footer"; text: string };
 
 const API = (env: Env) => `https://api.telegram.org/bot${env.BOT_TOKEN}`;
+
+async function runtimeLog(env: Env, level: string, event: string, data?: unknown) {
+  try {
+    await env.DB.prepare(
+      "INSERT INTO runtime_logs(level,event,data_json) VALUES(?,?,?)"
+    ).bind(level, event, data == null ? null : JSON.stringify(data)).run();
+  } catch (error) {
+    console.error("runtime log persistence failed", { event, error });
+  }
+}
+
+function diagnosticAuthorized(request: Request, env: Env, url: URL) {
+  const headerSecret = request.headers.get("X-Diagnostic-Secret");
+  const querySecret = url.searchParams.get("token");
+  return Boolean(env.DIAGNOSTIC_SECRET) &&
+    (headerSecret === env.DIAGNOSTIC_SECRET || querySecret === env.DIAGNOSTIC_SECRET);
+}
+
+function logsHtml(rows: any[], token: string) {
+  const escHtml = (v: unknown) => esc(v);
+  const badge = (level: string) => {
+    const l = String(level || "info").toLowerCase();
+    return `<span class="badge ${escHtml(l)}">${escHtml(l)}</span>`;
+  };
+  const items = rows.map((row) => {
+    const details = row.data_json ? escHtml(row.data_json) : "";
+    return `<article class="log">
+      <div class="meta"><span>${escHtml(row.created_at)}</span>${badge(row.level)}<code>${escHtml(row.event)}</code></div>
+      ${details ? `<pre>${details}</pre>` : ""}
+    </article>`;
+  }).join("");
+  const jsonHref = "/logs?token=" + encodeURIComponent(token) + "&format=json";
+  return `<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="10">
+<title>Reach · Runtime Logs</title>
+<style>
+:root{color-scheme:dark}body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+h1{margin:0;font-size:24px}.sub{color:#94a3b8;margin-top:6px}.actions{display:flex;gap:8px}.btn{display:inline-block;padding:9px 13px;border:1px solid #334155;border-radius:9px;color:#e2e8f0;text-decoration:none;background:#1e293b}
+.log{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px;margin:10px 0}.meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:#94a3b8}
+code{font-family:ui-monospace,SFMono-Regular,monospace;color:#cbd5e1}.badge{border-radius:999px;padding:3px 8px;font-size:12px}.error{background:#7f1d1d;color:#fecaca}.warn{background:#78350f;color:#fde68a}.info{background:#1e3a8a;color:#bfdbfe}
+pre{white-space:pre-wrap;word-break:break-word;background:#020617;border-radius:8px;padding:10px;margin:10px 0 0;color:#cbd5e1;direction:ltr;text-align:left}
+.empty{padding:40px;text-align:center;color:#94a3b8;background:#111827;border-radius:12px}
+</style>
+</head>
+<body><main>
+<div class="top"><div><h1>🧾 لاگ‌های Reach</h1><div class="sub">آخرین ۱۰۰ رویداد · بروزرسانی خودکار هر ۱۰ ثانیه</div></div>
+<div class="actions"><a class="btn" href="/logs?token=${encodeURIComponent(token)}">🔄 بروزرسانی</a><a class="btn" href="${jsonHref}">JSON</a></div></div>
+<section>${items || '<div class="empty">لاگی ثبت نشده است.</div>'}</section>
+</main></body></html>`;
+}
 const TITLES: Record<string,string> = {
   table:"📊 جدول", ranking:"🏆 رتبه‌بندی", stats:"📈 آمار", custom:"📝 پیام سفارشی", advanced:"✨ پیام پیشرفته"
 };
@@ -153,11 +209,11 @@ async function tg(env:Env,method:string,payload:any) {
   try {
     data=JSON.parse(raw);
   } catch {
-    throw new Error(`Telegram API ${method} returned invalid JSON (HTTP ${r.status})`);
+    await runtimeLog(env,"error","TELEGRAM_API_ERROR",{method,http_status:r.status,description:"invalid_json"});\n    throw new Error(`Telegram API ${method} returned invalid JSON (HTTP ${r.status})`);
   }
   if(!r.ok || data?.ok!==true) {
     const description=data?.description || "unknown Telegram API error";
-    throw new Error(`Telegram API ${method} failed (HTTP ${r.status}): ${description}`);
+    await runtimeLog(env,"error","TELEGRAM_API_ERROR",{method,http_status:r.status,description});\n    throw new Error(`Telegram API ${method} failed (HTTP ${r.status}): ${description}`);
   }
   return data;
 }
@@ -351,7 +407,7 @@ export default {
     if(request.method==="GET" && url.pathname==="/diagnostic") {
       const requestId=crypto.randomUUID();
       const timestamp=new Date().toISOString();
-      console.log("REACH_DIAGNOSTIC_REQUEST",{
+      await runtimeLog(env,"info","DIAGNOSTIC_REQUEST",{
         request_id:requestId,
         method:request.method,
         pathname:url.pathname,
@@ -363,6 +419,27 @@ export default {
         diagnostic:true,
         request_id:requestId,
         timestamp
+      });
+    }
+    if(request.method==="GET" && url.pathname==="/logs") {
+      if(!diagnosticAuthorized(request,env,url)) {
+        return new Response("Unauthorized",{status:401,headers:{"cache-control":"no-store"}});
+      }
+      const limit=Math.min(Math.max(Number(url.searchParams.get("limit")||"100"),1),500);
+      const rows=(await env.DB.prepare(
+        "SELECT id,level,event,data_json,created_at FROM runtime_logs ORDER BY id DESC LIMIT ?"
+      ).bind(limit).all<any>()).results || [];
+      if(url.searchParams.get("format")==="json") {
+        return Response.json({ok:true,count:rows.length,logs:rows},{
+          headers:{"cache-control":"no-store","x-content-type-options":"nosniff"}
+        });
+      }
+      return new Response(logsHtml(rows,url.searchParams.get("token")||""),{
+        headers:{
+          "content-type":"text/html; charset=utf-8",
+          "cache-control":"no-store",
+          "content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
+        }
       });
     }
     if(request.method==="GET" && url.pathname==="/health") {
@@ -387,20 +464,20 @@ export default {
     if(request.method==="POST" && url.pathname==="/webhook") {
       const secret=request.headers.get("X-Telegram-Bot-Api-Secret-Token");
       if(!secret || secret!==env.WEBHOOK_SECRET) {
-        console.warn("telegram webhook rejected",{reason:"invalid_secret",has_secret:Boolean(secret)});
+        await runtimeLog(env,"warn","WEBHOOK_REJECTED",{reason:"invalid_secret",has_secret:Boolean(secret)});\n        console.warn("telegram webhook rejected",{reason:"invalid_secret",has_secret:Boolean(secret)});
         return new Response("Unauthorized",{status:401});
       }
       try {
         const update=await request.json();
-        console.log("telegram update received", {
+        await runtimeLog(env,"info","WEBHOOK_RECEIVED", {
           update_id:update?.update_id,
           type:update?.message ? "message" : update?.callback_query ? "callback_query" : "other",
           chat_id:update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id
         });
         await handleUpdate(env,update);
-        console.log("telegram update handled", { update_id:update?.update_id });
+        await runtimeLog(env,"info","UPDATE_HANDLED", { update_id:update?.update_id });
       } catch (error) {
-        console.error("telegram webhook handler failed", error);
+        await runtimeLog(env,"error","WEBHOOK_HANDLER_ERROR",{message:error instanceof Error ? error.message : String(error)});\n        console.error("telegram webhook handler failed", error);
       }
       return new Response("ok");
     }
