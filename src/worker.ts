@@ -466,7 +466,8 @@ export default {
     if(request.method==="POST" && url.pathname==="/webhook") {
       const secret=request.headers.get("X-Telegram-Bot-Api-Secret-Token");
       if(!secret || secret!==env.WEBHOOK_SECRET) {
-        await runtimeLog(env,"warn","WEBHOOK_REJECTED",{reason:"invalid_secret",has_secret:Boolean(secret)});\n        console.warn("telegram webhook rejected",{reason:"invalid_secret",has_secret:Boolean(secret)});
+        await runtimeLog(env,"warn","WEBHOOK_REJECTED",{reason:"invalid_secret",has_secret:Boolean(secret)});
+        console.warn("telegram webhook rejected",{reason:"invalid_secret",has_secret:Boolean(secret)});
         return new Response("Unauthorized",{status:401});
       }
       try {
