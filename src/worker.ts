@@ -164,7 +164,7 @@ function renderTable(headers:string[],rows:string[][],style="classic",showIndex=
   return "<pre>"+[line(tl,tm,tr),row(data[0].map(esc)),line(ml,mm,mr),...data.slice(1).map(r=>row(r.map(esc))),line(bl,bm,br)].join("\n")+"</pre>";
 }
 
-function renderLayout(layout:Block[],headers:string[],rows:string[][],opts:any={}) {
+function renderRichMessage(layout:Block[],headers:string[],rows:string[][],opts:any={}) {
   const parts:string[]=[];
   for(const b of normalizeLayout(layout,opts.kind)){
     if(b.type==="header"){
@@ -189,6 +189,25 @@ function renderLayout(layout:Block[],headers:string[],rows:string[][],opts:any={
   let result=parts.filter(Boolean).join("\n\n");
   if(result.length>3900) result=result.slice(0,3880)+"\n…";
   return result;
+}
+
+function getMessageLayout(data:any): Block[] {
+  if (data.advanced) return normalizeLayout(data.layout,data.kind);
+  return normalizeLayout([
+    {type:"header",title:data.title,subtitle:data.subtitle},
+    {type:"table"},
+    {type:"footer",text:data.footer}
+  ],data.kind);
+}
+
+async function sendRichMessage(env:Env,chat:number,text:string,reply_markup?:any) {
+  return tg(env,"sendMessage",{
+    chat_id:chat,
+    text,
+    parse_mode:"HTML",
+    disable_web_page_preview:true,
+    reply_markup
+  });
 }
 
 function mainKeyboard() {
@@ -257,9 +276,7 @@ async function upsertUser(env:Env,u:any) {
 }
 
 async function showPreview(env:Env,chat:number,message:number,data:any) {
-  const text=data.advanced
-    ? renderLayout(data.layout,data.headers,data.rows,{style:data.style,showIndex:data.showIndex,align:data.align,kind:data.kind})
-    : renderLayout([{type:"header",title:data.title,subtitle:data.subtitle},{type:"table"},{type:"footer",text:data.footer}],data.headers,data.rows,{style:data.style,showIndex:data.showIndex,align:data.align,kind:data.kind});
+  const text=renderRichMessage(getMessageLayout(data),data.headers,data.rows,{style:data.style,showIndex:data.showIndex,align:data.align,kind:data.kind});
   await edit(env,chat,message,text,previewKeyboard(Boolean(data.advanced)));
 }
 
@@ -307,8 +324,8 @@ async function handleUpdate(env:Env,update:any) {
         await edit(env,chat,cb.message.message_id,"🧩 <b>مدیریت بخش‌ها</b>",{inline_keyboard:rows});
       } else if(action==="preview" && session) await showPreview(env,chat,cb.message.message_id,session.data);
       else if(action==="publish" && session) {
-        const d=session.data; const text=d.advanced?renderLayout(d.layout,d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}):renderLayout([{type:"header",title:d.title,subtitle:d.subtitle},{type:"table"},{type:"footer",text:d.footer}],d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind});
-        await clearSession(env,user.id); await send(env,chat,text); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard());
+        const d=session.data; const text=renderRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind});
+        await clearSession(env,user.id); await sendRichMessage(env,chat,text); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard());
       } else if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard()); }
       return;
     }
@@ -392,7 +409,7 @@ async function handleUpdate(env:Env,update:any) {
           table=parseDelimited(text);
         }
         const d={...(session?.data??{kind:"table",advanced:false}),...table,style:session?.data.style??"classic",showIndex:session?.data.showIndex??false,align:session?.data.align??"left",title:session?.data.title??TITLES[session?.data.kind??"table"],subtitle:session?.data.subtitle??"",footer:session?.data.footer??"",layout:session?.data.layout??defaultLayout(session?.data.kind??"table")};
-        await saveSession(env,user.id,"preview",d); await send(env,chat,renderLayout(d.layout,d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
+        await saveSession(env,user.id,"preview",d); await sendRichMessage(env,chat,renderRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
       } catch(e:any) { await send(env,chat,"⚠️ فایل قابل پردازش نیست. "+esc(e?.message||"خطای ناشناخته")); }
       return;
     }
@@ -401,7 +418,7 @@ async function handleUpdate(env:Env,update:any) {
         const table=parseTable(message.text);
         const template=session.data;
         const d={...template,...table,style:template.style??"classic",showIndex:template.showIndex??(template.kind==="ranking"),align:template.align??"left",title:template.title??TITLES[template.kind??"table"],subtitle:template.subtitle??"",footer:template.footer??"",layout:template.layout?legacyLayout(template,template.kind):defaultLayout(template.kind)};
-        await saveSession(env,user.id,"preview",d); await send(env,chat,renderLayout(d.layout,d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
+        await saveSession(env,user.id,"preview",d); await sendRichMessage(env,chat,renderRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
       } catch(e:any) { await send(env,chat,"⚠️ "+esc(e.message)); }
       return;
     }
