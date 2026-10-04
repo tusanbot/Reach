@@ -172,7 +172,10 @@ function buildRichMessage(layout:Block[],headers:string[],rows:string[][],opts:a
         blocks.push({
           type:"heading",
           size:2,
-          text:((b.title ? "🏷 " + b.title : "") + (b.subtitle ? "\n" + b.subtitle : "")).trim()
+          text:[
+            ...(b.title ? [{type:"bold",text:"🏷 " + b.title}] : []),
+            ...(b.subtitle ? [{type:"paragraph",text:b.subtitle}] : [])
+          ]
         });
       }
     } else if(b.type==="text"){
@@ -193,7 +196,10 @@ function buildRichMessage(layout:Block[],headers:string[],rows:string[][],opts:a
       });
     } else if(b.type==="stats"){
       const items=(b.items ?? []).map((item:any)=>({
-        blocks:[{type:"paragraph",text:"<b>"+esc(item.label)+"</b>: "+esc(String(item.value??"").replaceAll("{{count}}",String(rows.length)))}]
+        blocks:[{type:"paragraph",text:[
+          {type:"bold",text:String(item.label??"")},
+          ": " + String(item.value??"").replaceAll("{{count}}",String(rows.length))
+        ]}]
       }));
       if(items.length) blocks.push({
         type:"details",
@@ -205,7 +211,10 @@ function buildRichMessage(layout:Block[],headers:string[],rows:string[][],opts:a
         type:"blockquote",
         blocks:[{
           type:"paragraph",
-          text:(b.title ? "<b>⭐ "+esc(b.title)+"</b>" : "") + (b.text ? (b.title ? "\n" : "") + esc(b.text) : "")
+          text:[
+            ...(b.title ? [{type:"bold",text:"⭐ " + b.title}] : []),
+            ...(b.text ? (b.title ? ["\n"] : []).concat([b.text]) : [])
+          ]
         }]
       });
     } else if(b.type==="separator"){
