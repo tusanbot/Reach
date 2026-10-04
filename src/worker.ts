@@ -480,7 +480,8 @@ export default {
         await handleUpdate(env,update);
         await runtimeLog(env,"info","UPDATE_HANDLED", { update_id:update?.update_id });
       } catch (error) {
-        await runtimeLog(env,"error","WEBHOOK_HANDLER_ERROR",{message:error instanceof Error ? error.message : String(error)});\n        console.error("telegram webhook handler failed", error);
+        await runtimeLog(env,"error","WEBHOOK_HANDLER_ERROR",{message:error instanceof Error ? error.message : String(error)});
+        console.error("telegram webhook handler failed", error);
       }
       return new Response("ok");
     }
