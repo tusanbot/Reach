@@ -423,6 +423,15 @@ async function startSimpleRichBuilder(env:Env,chat:number,userId:number) {
   await saveSession(env,userId,"rich_title",{kind:"table",advanced:false,richBuilder:true,richTitle:"",richTitleBold:true,headers:[],rows:[],richCaption:"",richCaptionBold:false,richButtons:[],style:"classic",align:"left"});
   await send(env,chat,richBuilderPrompt("title"),richStageKeyboard("title"));
 }
+async function sendSimpleRichMessage(env:Env,chat:number,rich:any,data:any) {
+  try {
+    return await tg(env,"sendRichMessage",{chat_id:chat,rich_message:rich});
+  } catch(error) {
+    await runtimeLog(env,"warn","RICH_SIMPLE_SEND_FALLBACK",{message:error instanceof Error ? error.message : String(error)});
+    return await tg(env,"sendMessage",{chat_id:chat,text:buildRichFallbackHtml(rich),parse_mode:"HTML",disable_web_page_preview:true,reply_markup:richBuilderButtons(data)});
+  }
+}
+
 async function showSimpleRichPreview(env:Env,chat:number,message:number,data:any) {
   const rich_message=buildSimpleRichMessage(data);
   if(!rich_message.blocks.length) { await edit(env,chat,message,"⚠️ هنوز هیچ محتوایی برای پیام انتخاب نکردی.",richBuilderKeyboard()); return; }
@@ -462,7 +471,7 @@ async function handleUpdate(env:Env,update:any) {
       if(action==="publish") {
         const d=session.data; const rich=buildSimpleRichMessage(d);
         if(!rich.blocks.length) { await answer(env,id,"حداقل یک بخش از پیام را اضافه کن.",true); return; }
-        await clearSession(env,user.id); await sendRichMessage(env,chat,rich,richBuilderButtons(d)); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard()); return;
+        await clearSession(env,user.id); await sendSimpleRichMessage(env,chat,rich,d); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard()); return;
       }
       if(action==="edit") {
         const target=p[2];
