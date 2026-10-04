@@ -415,7 +415,7 @@ function richBuilderPrompt(stage:string) {
     title:"🏷 <b>مرحله ۱ از ۴ · عنوان</b>\n\nعنوان پیام رو بفرست.\nمی‌تونی این مرحله رو هم خالی بذاری.",
     table:"📊 <b>مرحله ۲ از ۴ · جدول</b>\n\nاطلاعات جدول رو بفرست. خط اول نام ستون‌هاست و <code>|</code> ستون‌ها رو جدا می‌کنه.\n\n<code>بازیکن | امتیاز | برد\nعلی | 1250 | 18\nمهدی | 1180 | 16</code>",
     caption:"💬 <b>مرحله ۳ از ۴ · توضیحات زیر جدول</b>\n\nمتن کپشن یا توضیحی که می‌خوای زیر جدول نمایش داده بشه رو بفرست.",
-    buttons:"🔘 <b>مرحله ۴ از ۴ · دکمه</b>\n\nبرای هر دکمه یک خط بنویس: <code>متن دکمه | لینک</code>\nمثلاً:\n<code>مشاهده سایت | https://example.com\nکانال ما | https://t.me/example</code>\n\nمی‌تونی چند دکمه بسازی یا این مرحله رو رد کنی."
+    buttons:"🔘 <b>مرحله ۴ از ۴ · دکمه</b>\n\nاول عنوان دکمه رو بفرست؛ بعد لینک دکمه رو جداگانه می‌فرستی.\n\nمثلاً:\n<code>🌐 مشاهده سایت</code>\nبعد: <code>https://example.com</code>\n\nاگر چند دکمه می‌خوای، بعد از ثبت هر دکمه دوباره عنوان دکمه بعدی رو بفرست.\n\nهمچنین می‌تونی چند دکمه رو یکجا با فرمت <code>عنوان | لینک</code> ارسال کنی.\nبرای رد کردن این مرحله «-» بفرست."
   };
   return p[stage];
 }
@@ -640,19 +640,69 @@ async function handleUpdate(env:Env,update:any) {
       else { await saveSession(env,user.id,"rich_caption_style",d); await send(env,chat,"🎨 توضیحات رو چطور نمایش بدیم؟",richStageKeyboard("caption_style")); }
       return;
     }
+    if(session?.state==="rich_button_url" && message.text) {
+      const url=message.text.trim();
+      const buttonText=String(session.data.richButtonDraftText||"").trim();
+      if(!buttonText) {
+        await saveSession(env,user.id,"rich_buttons",{...session.data,richButtonDraftText:""});
+        await send(env,chat,"🏷 عنوان دکمه رو بفرست.",richStageKeyboard("buttons"));
+        return;
+      }
+      if(!url || !/^(https?:\/\/|tg:\/\/)/i.test(url)) {
+        await send(env,chat,"⚠️ لینک معتبر نیست. لینک باید با <code>https://</code>، <code>http://</code> یا <code>tg://</code> شروع بشه.\n\nمثلاً: <code>https://example.com</code>",richStageKeyboard("buttons"));
+        return;
+      }
+      const current=Array.isArray(session.data.richButtons) ? session.data.richButtons : [];
+      if(current.length>=8) {
+        await send(env,chat,"⚠️ حداکثر ۸ دکمه می‌تونی اضافه کنی.");
+        return;
+      }
+      const d={...session.data,richButtons:[...current,{text:buttonText.slice(0,64),url,style:"primary"}],richButtonDraftText:""};
+      await saveSession(env,user.id,"rich_preview",d);
+      await showSimpleRichPreview(env,chat,message.message_id,d);
+      return;
+    }
+
     if(session?.state==="rich_buttons" && message.text) {
       const lines=message.text.split(/\r?\n/).map((x:string)=>x.trim()).filter(Boolean);
       if(lines.length>8) { await send(env,chat,"⚠️ حداکثر ۸ دکمه می‌تونی اضافه کنی.",richStageKeyboard("buttons")); return; }
       if(lines.length===1 && lines[0]==="-") {
-        const d={...session.data,richButtons:[]}; await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,message.message_id,d); return;
+        const d={...session.data,richButtons:[],richButtonDraftText:""}; await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,message.message_id,d); return;
       }
       const buttons:any[]=[];
       for(const line of lines) {
-        const parts=line.split("|").map((x:string)=>x.trim()); const text=parts.shift()||""; const url=parts.join("|").trim();
-        if(!text || !url || !/^(https?:\/\/|tg:\/\/)/i.test(url)) { await send(env,chat,"⚠️ فرمت دکمه درست نیست. هر خط باید این شکلی باشه:\n<code>متن دکمه | https://example.com</code>",richStageKeyboard("buttons")); return; }
+        const parts=line.split("|").map((x:string)=>x.trim());
+        if(parts.length===1) {
+          const buttonText=parts[0];
+          if(!buttonText) {
+            await send(env,chat,"⚠️ عنوان دکمه نمی‌تونه خالی باشه.",richStageKeyboard("buttons"));
+            return;
+          }
+          if((session.data.richButtons??[]).length + 1 > 8) {
+            await send(env,chat,"⚠️ حداکثر ۸ دکمه می‌تونی اضافه کنی.",richStageKeyboard("buttons"));
+            return;
+          }
+          await saveSession(env,user.id,"rich_button_url",{...session.data,richButtonDraftText:buttonText});
+          await send(env,chat,"🔗 <b>لینک دکمه</b>\n\nحالا لینک این دکمه رو بفرست.\nمثلاً: <code>https://example.com</code>",richStageKeyboard("buttons"));
+          return;
+        }
+        const text=parts.shift()||"";
+        const url=parts.join("|").trim();
+        if(!text || !url || !/^(https?:\/\/|tg:\/\/)/i.test(url)) {
+          await send(env,chat,"⚠️ فرمت دکمه درست نیست. هر خط باید این شکلی باشه:\n<code>متن دکمه | https://example.com</code>",richStageKeyboard("buttons"));
+          return;
+        }
         buttons.push({text:text.slice(0,64),url,style:"primary"});
       }
-      const d={...session.data,richButtons:buttons}; await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,message.message_id,d); return;
+      const current=Array.isArray(session.data.richButtons) ? session.data.richButtons : [];
+      if(current.length + buttons.length > 8) {
+        await send(env,chat,"⚠️ حداکثر ۸ دکمه می‌تونی اضافه کنی.",richStageKeyboard("buttons"));
+        return;
+      }
+      const d={...session.data,richButtons:[...current,...buttons],richButtonDraftText:""};
+      await saveSession(env,user.id,"rich_preview",d);
+      await showSimpleRichPreview(env,chat,message.message_id,d);
+      return;
     }
 
     if(session?.state==="waiting_data" && message.text) {
