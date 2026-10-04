@@ -364,6 +364,69 @@ async function showPreview(env:Env,chat:number,message:number,data:any) {
   }
 }
 
+function richText(value:string,bold=false): any {
+  return bold ? {type:"bold",text:value} : value;
+}
+function richBuilderButtons(data:any) {
+  const buttons=(data.richButtons ?? []).filter((b:any)=>b?.text && b?.url);
+  return buttons.length ? {inline_keyboard:buttons.map((b:any)=>[{text:String(b.text).slice(0,64),url:String(b.url)}])} : undefined;
+}
+function buildSimpleRichMessage(data:any): any {
+  const blocks:any[]=[];
+  const title=String(data.richTitle ?? "").trim();
+  const caption=String(data.richCaption ?? "").trim();
+  const headers=Array.isArray(data.headers) ? data.headers : [];
+  const rows=Array.isArray(data.rows) ? data.rows : [];
+  if(title) blocks.push({type:"heading",size:2,text:richText("🏷 "+title,Boolean(data.richTitleBold))});
+  if(headers.length && rows.length) {
+    const cells=[headers,...rows].map((row:any[],rowIndex:number)=>row.map((cell:any)=>({text:String(cell ?? ""),is_header:rowIndex===0,align:data.align==="center"?"center":data.align==="right"?"right":"left",valign:"middle"})));
+    const table:any={type:"table",cells,is_bordered:true,is_striped:true,is_compact:false};
+    if(caption) table.caption=richText(caption,Boolean(data.richCaptionBold));
+    blocks.push(table);
+  } else if(caption) blocks.push({type:"paragraph",text:richText(caption,Boolean(data.richCaptionBold))});
+  const buttons=(data.richButtons ?? []).filter((b:any)=>b?.text && b?.url);
+  for(let i=0;i<buttons.length;i+=4) blocks.push({type:"buttons",buttons:buttons.slice(i,i+4).map((b:any)=>({text:String(b.text).slice(0,64),style:["danger","success","primary","link"].includes(b.style)?b.style:"primary",url:String(b.url)})),align:"center"});
+  return {blocks,is_rtl:true};
+}
+function richBuilderKeyboard() {
+  return {inline_keyboard:[
+    [{text:"🚀 ساخت پیام",callback_data:"rich:publish"},{text:"🔄 شروع دوباره",callback_data:"rich:restart"}],
+    [{text:"🏷 عنوان",callback_data:"rich:edit:title"},{text:"📊 جدول",callback_data:"rich:edit:table"}],
+    [{text:"💬 توضیحات",callback_data:"rich:edit:caption"},{text:"🔘 دکمه‌ها",callback_data:"rich:edit:buttons"}],
+    [{text:"💾 ذخیره قالب",callback_data:"templates:save"},{text:"❌ لغو",callback_data:"rich:cancel"}]
+  ]};
+}
+function richStageKeyboard(stage:string) {
+  if(stage==="title") return {inline_keyboard:[[{text:"⏭️ بدون عنوان",callback_data:"rich:skip:title"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
+  if(stage==="title_style") return {inline_keyboard:[[{text:"🅱️ بولد",callback_data:"rich:title:bold"},{text:"🔤 معمولی",callback_data:"rich:title:normal"}],[{text:"🗑 حذف عنوان",callback_data:"rich:skip:title"},{text:"↩️ دوباره",callback_data:"rich:edit:title"}]]};
+  if(stage==="table") return {inline_keyboard:[[{text:"⏭️ بدون جدول",callback_data:"rich:skip:table"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
+  if(stage==="caption") return {inline_keyboard:[[{text:"⏭️ بدون توضیحات",callback_data:"rich:skip:caption"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
+  if(stage==="caption_style") return {inline_keyboard:[[{text:"🅱️ بولد",callback_data:"rich:caption:bold"},{text:"🔤 معمولی",callback_data:"rich:caption:normal"}],[{text:"🗑 حذف توضیحات",callback_data:"rich:skip:caption"},{text:"↩️ دوباره",callback_data:"rich:edit:caption"}]]};
+  return {inline_keyboard:[[{text:"⏭️ بدون دکمه",callback_data:"rich:skip:buttons"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
+}
+function richBuilderPrompt(stage:string) {
+  const p:any={
+    title:"🏷 <b>مرحله ۱ از ۴ · عنوان</b>\n\nعنوان پیام رو بفرست.\nمی‌تونی این مرحله رو هم خالی بذاری.",
+    table:"📊 <b>مرحله ۲ از ۴ · جدول</b>\n\nاطلاعات جدول رو بفرست. خط اول نام ستون‌هاست و <code>|</code> ستون‌ها رو جدا می‌کنه.\n\n<code>بازیکن | امتیاز | برد\nعلی | 1250 | 18\nمهدی | 1180 | 16</code>",
+    caption:"💬 <b>مرحله ۳ از ۴ · توضیحات زیر جدول</b>\n\nمتن کپشن یا توضیحی که می‌خوای زیر جدول نمایش داده بشه رو بفرست.",
+    buttons:"🔘 <b>مرحله ۴ از ۴ · دکمه</b>\n\nبرای هر دکمه یک خط بنویس: <code>متن دکمه | لینک</code>\nمثلاً:\n<code>مشاهده سایت | https://example.com\nکانال ما | https://t.me/example</code>\n\nمی‌تونی چند دکمه بسازی یا این مرحله رو رد کنی."
+  };
+  return p[stage];
+}
+async function startSimpleRichBuilder(env:Env,chat:number,userId:number) {
+  await saveSession(env,userId,"rich_title",{kind:"table",advanced:false,richBuilder:true,richTitle:"",richTitleBold:true,headers:[],rows:[],richCaption:"",richCaptionBold:false,richButtons:[],style:"classic",align:"left"});
+  await send(env,chat,richBuilderPrompt("title"),richStageKeyboard("title"));
+}
+async function showSimpleRichPreview(env:Env,chat:number,message:number,data:any) {
+  const rich_message=buildSimpleRichMessage(data);
+  if(!rich_message.blocks.length) { await edit(env,chat,message,"⚠️ هنوز هیچ محتوایی برای پیام انتخاب نکردی.",richBuilderKeyboard()); return; }
+  try { await tg(env,"editMessageText",{chat_id:chat,message_id:message,rich_message,reply_markup:richBuilderKeyboard()}); }
+  catch(error) {
+    await runtimeLog(env,"warn","RICH_SIMPLE_PREVIEW_FALLBACK",{message:error instanceof Error ? error.message : String(error)});
+    await edit(env,chat,message,buildRichFallbackHtml(rich_message),richBuilderKeyboard());
+  }
+}
+
 async function handleUpdate(env:Env,update:any) {
   const message=update.message;
   const cb=update.callback_query;
@@ -388,7 +451,9 @@ async function handleUpdate(env:Env,update:any) {
     }
     if(data.startsWith("builder:")) {
       const action=data.split(":")[1];
-      if(["table","ranking","stats","custom"].includes(action)) {
+      if(action==="table") {
+        await startSimpleRichBuilder(env,chat,user.id);
+      } else if(["ranking","stats","custom"].includes(action)) {
         await saveSession(env,user.id,"waiting_data",{kind:action,advanced:false});
         await send(env,chat,"<b>"+TITLES[action]+"</b>\n\nداده‌ها را با | جدا کن:\n\n<code>بازیکن | امتیاز | برد\nعلی | 1250 | 18\nمهدی | 1180 | 16</code>");
       } else if(action==="advanced") {
