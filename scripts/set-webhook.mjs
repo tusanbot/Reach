@@ -6,7 +6,15 @@ if (!workerUrl || !diagnosticSecret) {
   process.exit(1);
 }
 
-const baseUrl = workerUrl.replace(/\/$/, "");
+const rawWorkerUrl = workerUrl.trim();
+let baseUrl;
+try {
+  baseUrl = new URL(rawWorkerUrl).origin;
+} catch {
+  console.error("WORKER_URL must be a full URL, for example https://reach.example.workers.dev");
+  process.exit(1);
+}
+
 const endpoint = baseUrl + "/admin/set-webhook";
 
 const response = await fetch(endpoint, {
