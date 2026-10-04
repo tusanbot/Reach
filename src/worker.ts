@@ -246,6 +246,12 @@ function buildRichFallbackHtml(rich:any): string {
     else if(b.type==="paragraph") out.push(richTextToHtml(b.text));
     else if(b.type==="divider") out.push("────────────");
     else if(b.type==="footer") out.push("📌 "+richTextToHtml(b.text));
+    else if(b.type==="table") {
+      const rows=(b.cells ?? []).map((row:any[])=>row.map((cell:any)=>richTextToHtml(cell?.text ?? "")).join(" | "));
+      if(rows.length) out.push("<pre>"+rows.join("\n")+"</pre>");
+      if(b.caption) out.push(richTextToHtml(b.caption));
+    }
+    else if(b.type==="buttons") { /* native rich buttons are supplied via reply_markup on fallback */ }
     else if(b.type==="blockquote") out.push("❯ "+richTextToHtml(b.blocks?.[0]?.text));
     else if(b.type==="details") out.push("<b>"+richTextToHtml(b.summary)+"</b>");
   }
@@ -506,9 +512,16 @@ async function handleUpdate(env:Env,update:any) {
         await edit(env,chat,cb.message.message_id,"🧩 <b>مدیریت بخش‌ها</b>",{inline_keyboard:rows});
       } else if(action==="preview" && session) await showPreview(env,chat,cb.message.message_id,session.data);
       else if(action==="publish" && session) {
-        const d=session.data; const rich_message=buildRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind});
-        await clearSession(env,user.id); await sendRichMessage(env,chat,rich_message); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard());
-      } else if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard()); }
+        const d=session.data;
+        if(d.richBuilder) {
+          const rich=buildSimpleRichMessage(d);
+          if(!rich.blocks.length) { await answer(env,id,"حداقل یک بخش از پیام را اضافه کن.",true); return; }
+          await clearSession(env,user.id); await sendRichMessage(env,chat,rich,richBuilderButtons(d)); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard());
+        } else {
+          const rich_message=buildRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind});
+          await clearSession(env,user.id); await sendRichMessage(env,chat,rich_message); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard());
+        }
+            } else if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard()); }
       return;
     }
     if(data.startsWith("adv:") && session) {
@@ -551,8 +564,14 @@ async function handleUpdate(env:Env,update:any) {
       const id=Number(data.split(":")[2]); const t=await env.DB.prepare("SELECT * FROM templates WHERE id=? AND telegram_id=?").bind(id,user.id).first<any>();
       if(!t) return;
       const config=JSON.parse(t.config_json);
-      await saveSession(env,user.id,"waiting_data",{...config,templateId:id,advanced:Boolean(config.advanced||config.layout)});
-      await send(env,chat,"🚀 قالب <b>"+esc(t.name)+"</b> آماده است. داده‌های جدید را بفرست.");
+      if(config.richBuilder) {
+        const d={...config,templateId:id,richBuilder:true,headers:[],rows:[],richButtons:config.richButtons??[]};
+        await saveSession(env,user.id,"rich_table",d);
+        await send(env,chat,"🚀 قالب <b>"+esc(t.name)+"</b> آماده است. داده‌های جدول جدید رو بفرست یا «بدون جدول» رو انتخاب کن.",richStageKeyboard("table"));
+      } else {
+        await saveSession(env,user.id,"waiting_data",{...config,templateId:id,advanced:Boolean(config.advanced||config.layout)});
+        await send(env,chat,"🚀 قالب <b>"+esc(t.name)+"</b> آماده است. داده‌های جدید را بفرست.");
+      }
       return;
     }
     if(data.startsWith("template:delete:")) {
