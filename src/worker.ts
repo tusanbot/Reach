@@ -449,6 +449,39 @@ async function handleUpdate(env:Env,update:any) {
       }
       return;
     }
+    if(data.startsWith("rich:") && session) {
+      const p=data.split(":"); const action=p[1];
+      if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard()); return; }
+      if(action==="restart") { await startSimpleRichBuilder(env,chat,user.id); return; }
+      if(action==="publish") {
+        const d=session.data; const rich=buildSimpleRichMessage(d);
+        if(!rich.blocks.length) { await answer(env,id,"حداقل یک بخش از پیام را اضافه کن.",true); return; }
+        await clearSession(env,user.id); await sendRichMessage(env,chat,rich,richBuilderButtons(d)); await send(env,chat,"📤 پیام نهایی آماده شد.",mainKeyboard()); return;
+      }
+      if(action==="edit") {
+        const target=p[2];
+        if(target==="title") { await saveSession(env,user.id,"rich_title",{...session.data}); await send(env,chat,"🏷 <b>عنوان جدید</b>\n\nعنوان جدید را بفرست. برای حذف <code>-</code> بفرست.",richStageKeyboard("title")); }
+        else if(target==="table") { await saveSession(env,user.id,"rich_table",{...session.data}); await send(env,chat,richBuilderPrompt("table"),richStageKeyboard("table")); }
+        else if(target==="caption") { await saveSession(env,user.id,"rich_caption",{...session.data}); await send(env,chat,"💬 <b>توضیحات جدید</b>\n\nمتن جدید را بفرست. برای حذف <code>-</code> بفرست.",richStageKeyboard("caption")); }
+        else if(target==="buttons") { await saveSession(env,user.id,"rich_buttons",{...session.data}); await send(env,chat,richBuilderPrompt("buttons"),richStageKeyboard("buttons")); }
+        return;
+      }
+      if(action==="skip") {
+        const target=p[2]; const d={...session.data};
+        if(target==="title") { d.richTitle=""; d.richTitleBold=false; await saveSession(env,user.id,"rich_table",d); await send(env,chat,richBuilderPrompt("table"),richStageKeyboard("table")); }
+        else if(target==="table") { d.headers=[]; d.rows=[]; await saveSession(env,user.id,"rich_caption",d); await send(env,chat,richBuilderPrompt("caption"),richStageKeyboard("caption")); }
+        else if(target==="caption") { d.richCaption=""; d.richCaptionBold=false; await saveSession(env,user.id,"rich_buttons",d); await send(env,chat,richBuilderPrompt("buttons"),richStageKeyboard("buttons")); }
+        else if(target==="buttons") { d.richButtons=[]; await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,cb.message.message_id,d); }
+        return;
+      }
+      if(action==="title" && ["bold","normal"].includes(p[2])) {
+        const d={...session.data,richTitleBold:p[2]==="bold"}; await saveSession(env,user.id,"rich_table",d); await send(env,chat,richBuilderPrompt("table"),richStageKeyboard("table")); return;
+      }
+      if(action==="caption" && ["bold","normal"].includes(p[2])) {
+        const d={...session.data,richCaptionBold:p[2]==="bold"}; await saveSession(env,user.id,"rich_buttons",d); await send(env,chat,richBuilderPrompt("buttons"),richStageKeyboard("buttons")); return;
+      }
+    }
+
     if(data.startsWith("builder:")) {
       const action=data.split(":")[1];
       if(action==="table") {
@@ -562,6 +595,38 @@ async function handleUpdate(env:Env,update:any) {
       } catch(e:any) { await send(env,chat,"⚠️ فایل قابل پردازش نیست. "+esc(e?.message||"خطای ناشناخته")); }
       return;
     }
+    if(session?.state==="rich_title" && message.text) {
+      const value=message.text.trim(); const d={...session.data,richTitle:value==="-"?"":value};
+      if(!d.richTitle) { d.richTitleBold=false; await saveSession(env,user.id,"rich_table",d); await send(env,chat,richBuilderPrompt("table"),richStageKeyboard("table")); }
+      else { await saveSession(env,user.id,"rich_title_style",d); await send(env,chat,"🎨 عنوان رو چطور نمایش بدیم؟",richStageKeyboard("title_style")); }
+      return;
+    }
+    if(session?.state==="rich_table" && message.text) {
+      try { const table=parseTable(message.text.trim()); const d={...session.data,...table}; await saveSession(env,user.id,"rich_caption",d); await send(env,chat,richBuilderPrompt("caption"),richStageKeyboard("caption")); }
+      catch(e:any) { await send(env,chat,"⚠️ "+esc(e?.message||"ساخت جدول ناموفق بود.")+"\n\nاگر جدول نمی‌خوای، «بدون جدول» رو بزن.",richStageKeyboard("table")); }
+      return;
+    }
+    if(session?.state==="rich_caption" && message.text) {
+      const value=message.text.trim(); const d={...session.data,richCaption:value==="-"?"":value};
+      if(!d.richCaption) { d.richCaptionBold=false; await saveSession(env,user.id,"rich_buttons",d); await send(env,chat,richBuilderPrompt("buttons"),richStageKeyboard("buttons")); }
+      else { await saveSession(env,user.id,"rich_caption_style",d); await send(env,chat,"🎨 توضیحات رو چطور نمایش بدیم؟",richStageKeyboard("caption_style")); }
+      return;
+    }
+    if(session?.state==="rich_buttons" && message.text) {
+      const lines=message.text.split(/\r?\n/).map((x:string)=>x.trim()).filter(Boolean);
+      if(lines.length>8) { await send(env,chat,"⚠️ حداکثر ۸ دکمه می‌تونی اضافه کنی.",richStageKeyboard("buttons")); return; }
+      if(lines.length===1 && lines[0]==="-") {
+        const d={...session.data,richButtons:[]}; await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,message.message_id,d); return;
+      }
+      const buttons:any[]=[];
+      for(const line of lines) {
+        const parts=line.split("|").map((x:string)=>x.trim()); const text=parts.shift()||""; const url=parts.join("|").trim();
+        if(!text || !url || !/^(https?:\/\/|tg:\/\/)/i.test(url)) { await send(env,chat,"⚠️ فرمت دکمه درست نیست. هر خط باید این شکلی باشه:\n<code>متن دکمه | https://example.com</code>",richStageKeyboard("buttons")); return; }
+        buttons.push({text:text.slice(0,64),url,style:"primary"});
+      }
+      const d={...session.data,richButtons:buttons}; await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,message.message_id,d); return;
+    }
+
     if(session?.state==="waiting_data" && message.text) {
       try {
         const table=parseTable(message.text);
