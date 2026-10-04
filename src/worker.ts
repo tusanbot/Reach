@@ -468,6 +468,40 @@ export default {
       }
       return new Response(logsHtml(rows,token),{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
     }
+    if(request.method==="POST" && url.pathname==="/admin/set-webhook") {
+      const diagnosticSecret=request.headers.get("X-Diagnostic-Secret");
+      if(!env.DIAGNOSTIC_SECRET || diagnosticSecret!==env.DIAGNOSTIC_SECRET) {
+        await runtimeLog(env,"warn","WEBHOOK_SETUP_REJECTED",{reason:"invalid_diagnostic_secret"});
+        return Response.json({ok:false,error:"Unauthorized"},{status:401});
+      }
+      try {
+        const webhookUrl=new URL("/webhook",request.url).toString();
+        const result=await tg(env,"setWebhook",{
+          url:webhookUrl,
+          secret_token:env.WEBHOOK_SECRET,
+          drop_pending_updates:true
+        });
+        const info=await tg(env,"getWebhookInfo");
+        const configured=info.result?.url===webhookUrl;
+        await runtimeLog(env,"info","WEBHOOK_CONFIGURED",{
+          url:webhookUrl,
+          verified:configured,
+          pending_update_count:info.result?.pending_update_count ?? 0
+        });
+        return Response.json({
+          ok:configured,
+          webhook_url:webhookUrl,
+          verified:configured,
+          pending_update_count:info.result?.pending_update_count ?? 0,
+          last_error_message:info.result?.last_error_message ?? null
+        });
+      } catch(error) {
+        await runtimeLog(env,"error","WEBHOOK_SETUP_ERROR",{
+          message:error instanceof Error ? error.message : String(error)
+        });
+        return Response.json({ok:false,error:error instanceof Error ? error.message : String(error)},{status:502});
+      }
+    }
     if(request.method==="GET" && url.pathname==="/health") {
       let dbOk=false;
       try {
