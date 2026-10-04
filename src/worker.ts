@@ -36,6 +36,20 @@ function diagnosticAuthorized(request: Request, env: Env, url: URL) {
     (headerSecret === env.DIAGNOSTIC_SECRET || querySecret === env.DIAGNOSTIC_SECRET);
 }
 
+function logsLoginHtml(message = "") {
+  return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Reach · ورود به لاگ‌ها</title>
+<style>:root{color-scheme:dark}body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:520px;margin:10vh auto;padding:24px}.card{background:#111827;border:1px solid #334155;border-radius:16px;padding:24px}
+h1{margin-top:0}.sub{color:#94a3b8;line-height:1.8}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #475569;border-radius:10px;background:#020617;color:#fff;margin:14px 0}
+button{width:100%;padding:12px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-size:15px;cursor:pointer}.error{color:#fca5a5;margin-bottom:10px}
+code{direction:ltr;display:block;text-align:left;background:#020617;padding:8px;border-radius:8px}</style></head><body><main><div class="card">
+<h1>🔐 لاگ‌های Reach</h1><p class="sub">برای مشاهده لاگ‌های runtime، مقدار <code>DIAGNOSTIC_SECRET</code> را وارد کن.</p>
+${message ? `<div class="error">${esc(message)}</div>` : ""}
+<form method="post" action="/logs"><input type="password" name="token" autocomplete="off" placeholder="Diagnostic Secret" required>
+<button type="submit">مشاهده لاگ‌ها</button></form></div></main></body></html>`;
+}
+
 function logsHtml(rows: any[], token: string) {
   const escHtml = (v: unknown) => esc(v);
   const badge = (level: string) => {
@@ -425,24 +439,34 @@ export default {
     }
     if(request.method==="GET" && url.pathname==="/logs") {
       if(!diagnosticAuthorized(request,env,url)) {
-        return new Response("Unauthorized",{status:401,headers:{"cache-control":"no-store"}});
+        return new Response(logsLoginHtml(),{status:200,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}});
       }
       const limit=Math.min(Math.max(Number(url.searchParams.get("limit")||"100"),1),500);
-      const rows=(await env.DB.prepare(
-        "SELECT id,level,event,data_json,created_at FROM runtime_logs ORDER BY id DESC LIMIT ?"
-      ).bind(limit).all<any>()).results || [];
-      if(url.searchParams.get("format")==="json") {
-        return Response.json({ok:true,count:rows.length,logs:rows},{
-          headers:{"cache-control":"no-store","x-content-type-options":"nosniff"}
-        });
+      let rows:any[]=[];
+      try {
+        rows=(await env.DB.prepare("SELECT id,level,event,data_json,created_at FROM runtime_logs ORDER BY id DESC LIMIT ?").bind(limit).all<any>()).results || [];
+      } catch(error) {
+        return new Response(logsLoginHtml("جدول runtime_logs در D1 در دسترس نیست یا migration هنوز روی دیتابیس متصل به Worker اعمال نشده است."),{status:500,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}});
       }
-      return new Response(logsHtml(rows,url.searchParams.get("token")||""),{
-        headers:{
-          "content-type":"text/html; charset=utf-8",
-          "cache-control":"no-store",
-          "content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
-        }
-      });
+      if(url.searchParams.get("format")==="json") {
+        return Response.json({ok:true,count:rows.length,logs:rows},{headers:{"cache-control":"no-store","x-content-type-options":"nosniff"}});
+      }
+      return new Response(logsHtml(rows,url.searchParams.get("token")||""),{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
+    }
+    if(request.method==="POST" && url.pathname==="/logs") {
+      const form=await request.formData();
+      const token=String(form.get("token")||"");
+      if(!token || token!==env.DIAGNOSTIC_SECRET) {
+        return new Response(logsLoginHtml("Secret واردشده صحیح نیست."),{status:401,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}});
+      }
+      const limit=100;
+      let rows:any[]=[];
+      try {
+        rows=(await env.DB.prepare("SELECT id,level,event,data_json,created_at FROM runtime_logs ORDER BY id DESC LIMIT ?").bind(limit).all<any>()).results || [];
+      } catch(error) {
+        return new Response(logsLoginHtml("جدول runtime_logs در D1 در دسترس نیست یا migration هنوز روی دیتابیس متصل به Worker اعمال نشده است."),{status:500,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}});
+      }
+      return new Response(logsHtml(rows,token),{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
     }
     if(request.method==="GET" && url.pathname==="/health") {
       let dbOk=false;
@@ -452,14 +476,23 @@ export default {
       } catch (error) {
         console.error("health database check failed", error);
       }
+      let runtimeLogsTable=false;
+      try {
+        await env.DB.prepare("SELECT 1 FROM runtime_logs LIMIT 1").first();
+        runtimeLogsTable=true;
+      } catch (error) {
+        console.error("health runtime_logs check failed", error);
+      }
       return Response.json({
-        ok: dbOk && Boolean(env.BOT_TOKEN) && Boolean(env.WEBHOOK_SECRET),
+        ok: dbOk && runtimeLogsTable && Boolean(env.BOT_TOKEN) && Boolean(env.WEBHOOK_SECRET) && Boolean(env.DIAGNOSTIC_SECRET),
         service:"reach",
         runtime:"cloudflare-workers",
         config:{
           botToken:Boolean(env.BOT_TOKEN),
           webhookSecret:Boolean(env.WEBHOOK_SECRET),
-          database:dbOk
+          diagnosticSecret:Boolean(env.DIAGNOSTIC_SECRET),
+          database:dbOk,
+          runtimeLogsTable
         }
       });
     }
