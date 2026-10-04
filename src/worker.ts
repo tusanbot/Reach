@@ -348,6 +348,23 @@ async function handleUpdate(env:Env,update:any) {
 export default {
   async fetch(request:Request,env:Env):Promise<Response> {
     const url=new URL(request.url);
+    if(request.method==="GET" && url.pathname==="/diagnostic") {
+      const requestId=crypto.randomUUID();
+      const timestamp=new Date().toISOString();
+      console.log("REACH_DIAGNOSTIC_REQUEST",{
+        request_id:requestId,
+        method:request.method,
+        pathname:url.pathname,
+        timestamp
+      });
+      return Response.json({
+        ok:true,
+        service:"reach",
+        diagnostic:true,
+        request_id:requestId,
+        timestamp
+      });
+    }
     if(request.method==="GET" && url.pathname==="/health") {
       let dbOk=false;
       try {
@@ -369,7 +386,10 @@ export default {
     }
     if(request.method==="POST" && url.pathname==="/webhook") {
       const secret=request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-      if(!secret || secret!==env.WEBHOOK_SECRET) return new Response("Unauthorized",{status:401});
+      if(!secret || secret!==env.WEBHOOK_SECRET) {
+        console.warn("telegram webhook rejected",{reason:"invalid_secret",has_secret:Boolean(secret)});
+        return new Response("Unauthorized",{status:401});
+      }
       try {
         const update=await request.json();
         console.log("telegram update received", {
