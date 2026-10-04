@@ -11,9 +11,8 @@ jobs:
     name: Register and verify webhook
     runs-on: ubuntu-latest
     env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       WORKER_URL: ${{ secrets.WORKER_URL }}
-      WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+      DIAGNOSTIC_SECRET: ${{ secrets.DIAGNOSTIC_SECRET }}
 
     steps:
       - name: Checkout
@@ -30,7 +29,7 @@ jobs:
           set -euo pipefail
           missing=0
 
-          for name in BOT_TOKEN WORKER_URL WEBHOOK_SECRET; do
+          for name in WORKER_URL DIAGNOSTIC_SECRET; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::$name is not configured in GitHub Actions Secrets."
               missing=1
