@@ -174,7 +174,7 @@ function buildRichMessage(layout:Block[],headers:string[],rows:string[][],opts:a
           size:2,
           text:[
             ...(b.title ? [{type:"bold",text:"🏷 " + b.title}] : []),
-            ...(b.subtitle ? [{type:"paragraph",text:b.subtitle}] : [])
+            ...(b.subtitle ? ["\n" + b.subtitle] : [])
           ]
         });
       }
@@ -226,13 +226,28 @@ function buildRichMessage(layout:Block[],headers:string[],rows:string[][],opts:a
   return {blocks,is_rtl:true};
 }
 
+function richTextToHtml(value:any): string {
+  if(Array.isArray(value)) return value.map(richTextToHtml).join("");
+  if(value && typeof value==="object"){
+    if(value.type==="bold") return "<b>"+richTextToHtml(value.text)+"</b>";
+    if(value.type==="italic") return "<i>"+richTextToHtml(value.text)+"</i>";
+    if(value.type==="underline") return "<u>"+richTextToHtml(value.text)+"</u>";
+    if(value.type==="strikethrough") return "<s>"+richTextToHtml(value.text)+"</s>";
+    if(value.type==="code") return "<code>"+richTextToHtml(value.text)+"</code>";
+    return richTextToHtml(value.text ?? "");
+  }
+  return esc(value ?? "");
+}
+
 function buildRichFallbackHtml(rich:any): string {
   const out:string[]=[];
   for(const b of rich.blocks ?? []){
-    if(b.type==="heading") out.push("<b>"+esc(b.text)+"</b>");
-    else if(b.type==="paragraph") out.push(esc(b.text));
+    if(b.type==="heading") out.push(richTextToHtml(b.text));
+    else if(b.type==="paragraph") out.push(richTextToHtml(b.text));
     else if(b.type==="divider") out.push("────────────");
-    else if(b.type==="footer") out.push("📌 "+esc(b.text));
+    else if(b.type==="footer") out.push("📌 "+richTextToHtml(b.text));
+    else if(b.type==="blockquote") out.push("❯ "+richTextToHtml(b.blocks?.[0]?.text));
+    else if(b.type==="details") out.push("<b>"+richTextToHtml(b.summary)+"</b>");
   }
   return out.join("\n\n").slice(0,3900);
 }
