@@ -49,13 +49,13 @@ function diagnosticAuthorized(request: Request, env: Env, url: URL) {
 
 function logsLoginHtml(message = "") {
   return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Reach · ورود به لاگ‌ها</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>جدول ساز · ورود به لاگ‌ها</title>
 <style>:root{color-scheme:dark}body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
 main{max-width:520px;margin:10vh auto;padding:24px}.card{background:#111827;border:1px solid #334155;border-radius:16px;padding:24px}
 h1{margin-top:0}.sub{color:#94a3b8;line-height:1.8}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #475569;border-radius:10px;background:#020617;color:#fff;margin:14px 0}
 button{width:100%;padding:12px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-size:15px;cursor:pointer}.error{color:#fca5a5;margin-bottom:10px}
 code{direction:ltr;display:block;text-align:left;background:#020617;padding:8px;border-radius:8px}</style></head><body><main><div class="card">
-<h1>🔐 لاگ‌های Reach</h1><p class="sub">برای مشاهده لاگ‌های runtime، مقدار <code>DIAGNOSTIC_SECRET</code> را وارد کن.</p>
+<h1>🔐 لاگ‌های جدول ساز</h1><p class="sub">برای مشاهده لاگ‌های runtime، مقدار <code>DIAGNOSTIC_SECRET</code> را وارد کن.</p>
 ${message ? `<div class="error">${esc(message)}</div>` : ""}
 <form method="post" action="/logs"><input type="password" name="token" autocomplete="off" placeholder="Diagnostic Secret" required>
 <button type="submit">مشاهده لاگ‌ها</button></form></div></main></body></html>`;
@@ -81,7 +81,7 @@ function logsHtml(rows: any[], token: string) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="10">
-<title>Reach · Runtime Logs</title>
+<title>جدول ساز · Runtime Logs</title>
 <style>
 :root{color-scheme:dark}body{margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
 main{max-width:1100px;margin:0 auto;padding:24px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
@@ -93,7 +93,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#020617;border-radius:
 </style>
 </head>
 <body><main>
-<div class="top"><div><h1>🧾 لاگ‌های Reach</h1><div class="sub">آخرین ۱۰۰ رویداد · بروزرسانی خودکار هر ۱۰ ثانیه</div></div>
+<div class="top"><div><h1>🧾 لاگ‌های جدول ساز</h1><div class="sub">آخرین ۱۰۰ رویداد · بروزرسانی خودکار هر ۱۰ ثانیه</div></div>
 <div class="actions"><a class="btn" href="/logs?token=${encodeURIComponent(token)}">🔄 بروزرسانی</a><a class="btn" href="${jsonHref}">JSON</a></div></div>
 <section>${items || '<div class="empty">لاگی ثبت نشده است.</div>'}</section>
 </main></body></html>`;
