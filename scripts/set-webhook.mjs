@@ -1,58 +1,38 @@
-const token = process.env.BOT_TOKEN;
 const workerUrl = process.env.WORKER_URL;
-const secret = process.env.WEBHOOK_SECRET;
+const diagnosticSecret = process.env.DIAGNOSTIC_SECRET;
 
-if (!token || !workerUrl || !secret) {
-  console.error("BOT_TOKEN, WORKER_URL and WEBHOOK_SECRET are required.");
+if (!workerUrl || !diagnosticSecret) {
+  console.error("WORKER_URL and DIAGNOSTIC_SECRET are required.");
   process.exit(1);
 }
 
 const baseUrl = workerUrl.replace(/\/$/, "");
-const webhookUrl = baseUrl + "/webhook";
-const api = (method) => `https://api.telegram.org/bot${token}/${method}`;
+const endpoint = baseUrl + "/admin/set-webhook";
 
-async function telegram(method, options = {}) {
-  const response = await fetch(api(method), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(options),
-  });
-
-  const body = await response.text();
-  let data;
-  try {
-    data = JSON.parse(body);
-  } catch {
-    throw new Error(`Telegram returned non-JSON response (HTTP ${response.status}).`);
-  }
-
-  if (!response.ok || data.ok !== true) {
-    throw new Error(data.description || `Telegram API request failed (HTTP ${response.status}).`);
-  }
-
-  return data;
-}
-
-const result = await telegram("setWebhook", {
-  url: webhookUrl,
-  secret_token: secret,
-  drop_pending_updates: true,
+const response = await fetch(endpoint, {
+  method: "POST",
+  headers: {
+    "X-Diagnostic-Secret": diagnosticSecret,
+  },
 });
 
-console.log(`Webhook registered: ${result.result === true ? "yes" : "no"}`);
-console.log(`Webhook URL: ${webhookUrl}`);
-
-const info = await telegram("getWebhookInfo");
-const configured = info.result?.url === webhookUrl;
-
-console.log(`Webhook verified: ${configured ? "yes" : "no"}`);
-console.log(`Pending updates: ${info.result?.pending_update_count ?? 0}`);
-
-if (info.result?.last_error_message) {
-  console.log(`Telegram last error: ${info.result.last_error_message}`);
+const body = await response.text();
+let data;
+try {
+  data = JSON.parse(body);
+} catch {
+  throw new Error("Worker returned non-JSON response (HTTP " + response.status + ").");
 }
 
-if (!configured) {
-  console.error("Webhook verification failed: Telegram reports a different URL.");
-  process.exit(1);
+if (!response.ok || data.ok !== true) {
+  throw new Error(data.error || "Webhook setup failed (HTTP " + response.status + ").");
+}
+
+console.log("Webhook registered: " + (data.verified ? "yes" : "no"));
+console.log("Webhook URL: " + data.webhook_url);
+console.log("Webhook verified: " + (data.verified ? "yes" : "no"));
+console.log("Pending updates: " + (data.pending_update_count ?? 0));
+
+if (data.last_error_message) {
+  console.log("Telegram last error: " + data.last_error_message);
 }
