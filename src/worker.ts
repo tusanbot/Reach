@@ -209,11 +209,13 @@ async function tg(env:Env,method:string,payload:any) {
   try {
     data=JSON.parse(raw);
   } catch {
-    await runtimeLog(env,"error","TELEGRAM_API_ERROR",{method,http_status:r.status,description:"invalid_json"});\n    throw new Error(`Telegram API ${method} returned invalid JSON (HTTP ${r.status})`);
+    await runtimeLog(env,"error","TELEGRAM_API_ERROR",{method,http_status:r.status,description:"invalid_json"});
+    throw new Error(`Telegram API ${method} returned invalid JSON (HTTP ${r.status})`);
   }
   if(!r.ok || data?.ok!==true) {
     const description=data?.description || "unknown Telegram API error";
-    await runtimeLog(env,"error","TELEGRAM_API_ERROR",{method,http_status:r.status,description});\n    throw new Error(`Telegram API ${method} failed (HTTP ${r.status}): ${description}`);
+    await runtimeLog(env,"error","TELEGRAM_API_ERROR",{method,http_status:r.status,description});
+    throw new Error(`Telegram API ${method} failed (HTTP ${r.status}): ${description}`);
   }
   return data;
 }
