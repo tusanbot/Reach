@@ -164,31 +164,68 @@ function renderTable(headers:string[],rows:string[][],style="classic",showIndex=
   return "<pre>"+[line(tl,tm,tr),row(data[0].map(esc)),line(ml,mm,mr),...data.slice(1).map(r=>row(r.map(esc))),line(bl,bm,br)].join("\n")+"</pre>";
 }
 
-function renderRichMessage(layout:Block[],headers:string[],rows:string[][],opts:any={}) {
-  const parts:string[]=[];
+function buildRichMessage(layout:Block[],headers:string[],rows:string[][],opts:any={}): any {
+  const blocks:any[]=[];
   for(const b of normalizeLayout(layout,opts.kind)){
     if(b.type==="header"){
-      if(b.title) parts.push("🏷 <b>"+esc(b.title)+"</b>");
-      if(b.subtitle) parts.push(esc(b.subtitle));
-    } else if(b.type==="text"){
-      if(b.text?.trim()) parts.push(esc(b.text));
-    } else if(b.type==="table"){
-      parts.push(renderTable(headers,rows,opts.style,opts.showIndex,opts.align));
-    } else if(b.type==="stats"){
-      const lines=["📈 <b>آمار</b>"];
-      for(const item of b.items ?? []) {
-        const value=String(item.value??"").replaceAll("{{count}}",String(rows.length));
-        if(item.label || value) lines.push("• <b>"+esc(item.label)+"</b>: "+esc(value));
+      if(b.title || b.subtitle){
+        blocks.push({
+          type:"heading",
+          size:2,
+          text:((b.title ? "🏷 " + b.title : "") + (b.subtitle ? "\n" + b.subtitle : "")).trim()
+        });
       }
-      if(lines.length>1) parts.push(lines.join("\n"));
+    } else if(b.type==="text"){
+      if(b.text?.trim()) blocks.push({type:"paragraph",text:b.text});
+    } else if(b.type==="table"){
+      const data=[headers,...rows];
+      blocks.push({
+        type:"table",
+        cells:data.map((r,rowIndex)=>r.map((c)=>({
+          text:String(c??""),
+          is_header:rowIndex===0,
+          align:opts.align==="center" ? "center" : opts.align==="right" ? "right" : "left",
+          valign:"middle"
+        }))),
+        is_bordered:true,
+        is_striped:true,
+        is_compact:false
+      });
+    } else if(b.type==="stats"){
+      const items=(b.items ?? []).map((item:any)=>({
+        blocks:[{type:"paragraph",text:"<b>"+esc(item.label)+"</b>: "+esc(String(item.value??"").replaceAll("{{count}}",String(rows.length)))}]
+      }));
+      if(items.length) blocks.push({
+        type:"details",
+        summary:"📈 آمار",
+        blocks:[{type:"list",items}]
+      });
     } else if(b.type==="highlight"){
-      if(b.title || b.text) parts.push("⭐ <b>"+esc(b.title||"")+"</b>"+(b.text?"\n"+esc(b.text):""));
-    } else if(b.type==="separator") parts.push("────────────");
-    else if(b.type==="footer" && b.text?.trim()) parts.push("📌 "+esc(b.text));
+      if(b.title || b.text) blocks.push({
+        type:"blockquote",
+        blocks:[{
+          type:"paragraph",
+          text:(b.title ? "<b>⭐ "+esc(b.title)+"</b>" : "") + (b.text ? (b.title ? "\n" : "") + esc(b.text) : "")
+        }]
+      });
+    } else if(b.type==="separator"){
+      blocks.push({type:"divider"});
+    } else if(b.type==="footer" && b.text?.trim()){
+      blocks.push({type:"footer",text:b.text});
+    }
   }
-  let result=parts.filter(Boolean).join("\n\n");
-  if(result.length>3900) result=result.slice(0,3880)+"\n…";
-  return result;
+  return {blocks,is_rtl:true};
+}
+
+function buildRichFallbackHtml(rich:any): string {
+  const out:string[]=[];
+  for(const b of rich.blocks ?? []){
+    if(b.type==="heading") out.push("<b>"+esc(b.text)+"</b>");
+    else if(b.type==="paragraph") out.push(esc(b.text));
+    else if(b.type==="divider") out.push("────────────");
+    else if(b.type==="footer") out.push("📌 "+esc(b.text));
+  }
+  return out.join("\n\n").slice(0,3900);
 }
 
 function getMessageLayout(data:any): Block[] {
@@ -200,14 +237,25 @@ function getMessageLayout(data:any): Block[] {
   ],data.kind);
 }
 
-async function sendRichMessage(env:Env,chat:number,text:string,reply_markup?:any) {
-  return tg(env,"sendMessage",{
-    chat_id:chat,
-    text,
-    parse_mode:"HTML",
-    disable_web_page_preview:true,
-    reply_markup
-  });
+async function sendRichMessage(env:Env,chat:number,rich_message:any,reply_markup?:any) {
+  try {
+    return await tg(env,"sendRichMessage",{
+      chat_id:chat,
+      rich_message,
+      reply_markup
+    });
+  } catch(error) {
+    await runtimeLog(env,"warn","RICH_MESSAGE_FALLBACK",{
+      message:error instanceof Error ? error.message : String(error)
+    });
+    return tg(env,"sendMessage",{
+      chat_id:chat,
+      text:buildRichFallbackHtml(rich_message),
+      parse_mode:"HTML",
+      disable_web_page_preview:true,
+      reply_markup
+    });
+  }
 }
 
 function mainKeyboard() {
@@ -276,8 +324,20 @@ async function upsertUser(env:Env,u:any) {
 }
 
 async function showPreview(env:Env,chat:number,message:number,data:any) {
-  const text=renderRichMessage(getMessageLayout(data),data.headers,data.rows,{style:data.style,showIndex:data.showIndex,align:data.align,kind:data.kind});
-  await edit(env,chat,message,text,previewKeyboard(Boolean(data.advanced)));
+  const rich_message=buildRichMessage(getMessageLayout(data),data.headers,data.rows,{style:data.style,showIndex:data.showIndex,align:data.align,kind:data.kind});
+  try {
+    await tg(env,"editMessageText",{
+      chat_id:chat,
+      message_id:message,
+      rich_message,
+      reply_markup:previewKeyboard(Boolean(data.advanced))
+    });
+  } catch(error) {
+    await runtimeLog(env,"warn","RICH_PREVIEW_FALLBACK",{
+      message:error instanceof Error ? error.message : String(error)
+    });
+    await edit(env,chat,message,buildRichFallbackHtml(rich_message),previewKeyboard(Boolean(data.advanced)));
+  }
 }
 
 async function handleUpdate(env:Env,update:any) {
@@ -324,8 +384,8 @@ async function handleUpdate(env:Env,update:any) {
         await edit(env,chat,cb.message.message_id,"🧩 <b>مدیریت بخش‌ها</b>",{inline_keyboard:rows});
       } else if(action==="preview" && session) await showPreview(env,chat,cb.message.message_id,session.data);
       else if(action==="publish" && session) {
-        const d=session.data; const text=renderRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind});
-        await clearSession(env,user.id); await sendRichMessage(env,chat,text); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard());
+        const d=session.data; const rich_message=buildRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind});
+        await clearSession(env,user.id); await sendRichMessage(env,chat,rich_message); await send(env,chat,"📤 پیام بالا آماده فوروارد است.",mainKeyboard());
       } else if(action==="cancel") { await clearSession(env,user.id); await edit(env,chat,cb.message.message_id,"❌ ساخت پیام لغو شد.",mainKeyboard()); }
       return;
     }
@@ -409,7 +469,7 @@ async function handleUpdate(env:Env,update:any) {
           table=parseDelimited(text);
         }
         const d={...(session?.data??{kind:"table",advanced:false}),...table,style:session?.data.style??"classic",showIndex:session?.data.showIndex??false,align:session?.data.align??"left",title:session?.data.title??TITLES[session?.data.kind??"table"],subtitle:session?.data.subtitle??"",footer:session?.data.footer??"",layout:session?.data.layout??defaultLayout(session?.data.kind??"table")};
-        await saveSession(env,user.id,"preview",d); await sendRichMessage(env,chat,renderRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
+        await saveSession(env,user.id,"preview",d); await sendRichMessage(env,chat,buildRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
       } catch(e:any) { await send(env,chat,"⚠️ فایل قابل پردازش نیست. "+esc(e?.message||"خطای ناشناخته")); }
       return;
     }
@@ -418,7 +478,7 @@ async function handleUpdate(env:Env,update:any) {
         const table=parseTable(message.text);
         const template=session.data;
         const d={...template,...table,style:template.style??"classic",showIndex:template.showIndex??(template.kind==="ranking"),align:template.align??"left",title:template.title??TITLES[template.kind??"table"],subtitle:template.subtitle??"",footer:template.footer??"",layout:template.layout?legacyLayout(template,template.kind):defaultLayout(template.kind)};
-        await saveSession(env,user.id,"preview",d); await sendRichMessage(env,chat,renderRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
+        await saveSession(env,user.id,"preview",d); await sendRichMessage(env,chat,buildRichMessage(getMessageLayout(d),d.headers,d.rows,{style:d.style,showIndex:d.showIndex,align:d.align,kind:d.kind}),previewKeyboard(Boolean(d.advanced)));
       } catch(e:any) { await send(env,chat,"⚠️ "+esc(e.message)); }
       return;
     }
