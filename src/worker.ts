@@ -442,6 +442,20 @@ async function showSimpleRichPreview(env:Env,chat:number,message:number,data:any
   }
 }
 
+async function sendSimpleRichPreview(env:Env,chat:number,data:any) {
+  const rich_message=buildSimpleRichMessage(data);
+  if(!rich_message.blocks.length) {
+    await send(env,chat,"⚠️ هنوز هیچ محتوایی برای پیام انتخاب نکردی.",richBuilderKeyboard());
+    return;
+  }
+  try {
+    await tg(env,"sendRichMessage",{chat_id:chat,rich_message,reply_markup:richBuilderKeyboard()});
+  } catch(error) {
+    await runtimeLog(env,"warn","RICH_SIMPLE_PREVIEW_SEND_FALLBACK",{message:error instanceof Error ? error.message : String(error)});
+    await send(env,chat,buildRichFallbackHtml(rich_message),richBuilderKeyboard());
+  }
+}
+
 async function handleUpdate(env:Env,update:any) {
   const message=update.message;
   const cb=update.callback_query;
@@ -659,7 +673,7 @@ async function handleUpdate(env:Env,update:any) {
       }
       const d={...session.data,richButtons:[...current,{text:buttonText.slice(0,64),url,style:"primary"}],richButtonDraftText:""};
       await saveSession(env,user.id,"rich_preview",d);
-      await showSimpleRichPreview(env,chat,message.message_id,d);
+      await sendSimpleRichPreview(env,chat,d);
       return;
     }
 
@@ -701,7 +715,7 @@ async function handleUpdate(env:Env,update:any) {
       }
       const d={...session.data,richButtons:[...current,...buttons],richButtonDraftText:""};
       await saveSession(env,user.id,"rich_preview",d);
-      await showSimpleRichPreview(env,chat,message.message_id,d);
+      await sendSimpleRichPreview(env,chat,d);
       return;
     }
 
