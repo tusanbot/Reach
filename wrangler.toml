@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
+ADMIN_USER_IDS = "7918162941"
 
 [[d1_databases]]
 binding = "DB"
