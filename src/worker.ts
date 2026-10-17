@@ -478,12 +478,53 @@ async function startSimpleRichBuilder(env:Env,chat:number,userId:number) {
   await saveSession(env,userId,"rich_title",{kind:"table",advanced:false,richBuilder:true,richTitle:"",richTitleBold:true,richItems:[],headers:[],rows:[],richCaption:"",richCaptionBold:false,richButtons:[],style:"classic",align:"left"});
   await send(env,chat,richBuilderPrompt("title"),richStageKeyboard("title"));
 }
+async function sendSimpleRichFallback(env:Env,chat:number,rich:any,data:any) {
+  const parts:any[]=[];
+  let textBlocks:any[]=[];
+  const flushText=()=>{
+    if(textBlocks.length) { parts.push({type:"text",blocks:textBlocks}); textBlocks=[]; }
+  };
+  for(const block of rich.blocks??[]) {
+    if(block.type==="photo"||block.type==="video") {
+      flushText();
+      parts.push({type:"media",block});
+    } else if(block.type==="buttons") {
+      // Native rich buttons are rendered as a regular inline keyboard in fallback mode.
+    } else {
+      textBlocks.push(block);
+    }
+  }
+  flushText();
+  if(!parts.length) parts.push({type:"text",blocks:[{type:"paragraph",text:"پیام سفارشی"}]});
+  const markup=richBuilderButtons(data);
+  let result:any;
+  for(let i=0;i<parts.length;i++) {
+    const part=parts[i], isLast=i===parts.length-1;
+    if(part.type==="media") {
+      const b=part.block, media=String(b.photo?.media??b.video?.media??"");
+      const caption=richTextToHtml(b.caption?.text??"");
+      result=await tg(env,b.type==="photo"?"sendPhoto":"sendVideo",{
+        chat_id:chat,
+        [b.type==="photo"?"photo":"video"]:media,
+        ...(caption?{caption,parse_mode:"HTML"}:{}),
+        ...(isLast&&markup?{reply_markup:markup}:{})
+      });
+    } else {
+      const text=buildRichFallbackHtml({blocks:part.blocks})||" ";
+      result=await tg(env,"sendMessage",{
+        chat_id:chat,text,parse_mode:"HTML",disable_web_page_preview:true,
+        ...(isLast&&markup?{reply_markup:markup}:{})
+      });
+    }
+  }
+  return result;
+}
 async function sendSimpleRichMessage(env:Env,chat:number,rich:any,data:any) {
   try {
     return await tg(env,"sendRichMessage",{chat_id:chat,rich_message:rich});
   } catch(error) {
     await runtimeLog(env,"warn","RICH_SIMPLE_SEND_FALLBACK",{message:error instanceof Error ? error.message : String(error)});
-    return await tg(env,"sendMessage",{chat_id:chat,text:buildRichFallbackHtml(rich),parse_mode:"HTML",disable_web_page_preview:true,reply_markup:richBuilderButtons(data)});
+    return await sendSimpleRichFallback(env,chat,rich,data);
   }
 }
 
