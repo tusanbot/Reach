@@ -390,7 +390,7 @@ function richText(value:string,bold=false): any {
 function richBuilderButtons(data:any) {
   const legacy=(data.richButtons ?? []).filter((b:any)=>b?.text && b?.url);
   const itemButtons=(Array.isArray(data.richItems)?data.richItems:[]).filter((item:any)=>item?.type==="buttons").flatMap((item:any)=>Array.isArray(item.buttons)?item.buttons:[]);
-  const buttons=[...legacy,...itemButtons].filter((b:any)=>b?.text && /^(https?:\\/\\/|tg:\\/\\/)/i.test(String(b.url??"")));
+  const buttons=[...legacy,...itemButtons].filter((b:any)=>{ const url=String(b.url??"").toLowerCase(); return Boolean(b?.text) && (url.startsWith("https://") || url.startsWith("http://") || url.startsWith("tg://")); });
   return buttons.length ? {inline_keyboard:buttons.map((b:any)=>[{text:String(b.text).slice(0,64),url:String(b.url)}])} : undefined;
 }
 function buildSimpleRichMessage(data:any): any {
