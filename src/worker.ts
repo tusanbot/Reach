@@ -388,7 +388,9 @@ function richText(value:string,bold=false): any {
   return bold ? {type:"bold",text:value} : value;
 }
 function richBuilderButtons(data:any) {
-  const buttons=(data.richButtons ?? []).filter((b:any)=>b?.text && b?.url);
+  const legacy=(data.richButtons ?? []).filter((b:any)=>b?.text && b?.url);
+  const itemButtons=(Array.isArray(data.richItems)?data.richItems:[]).filter((item:any)=>item?.type==="buttons").flatMap((item:any)=>Array.isArray(item.buttons)?item.buttons:[]);
+  const buttons=[...legacy,...itemButtons].filter((b:any)=>b?.text && /^(https?:\\/\\/|tg:\\/\\/)/i.test(String(b.url??"")));
   return buttons.length ? {inline_keyboard:buttons.map((b:any)=>[{text:String(b.text).slice(0,64),url:String(b.url)}])} : undefined;
 }
 function buildSimpleRichMessage(data:any): any {
@@ -429,7 +431,7 @@ function richBuilderKeyboard(data:any={}) {
     [{text:"🔘 افزودن دکمه‌ها",callback_data:"richv2:add:buttons"}]
   ];
   if(items.length) rows.push([{text:"↕️ جابه‌جایی و مدیریت آیتم‌ها ("+items.length+")",callback_data:"richv2:manage"}]);
-  rows.push([{text:"👁 ایجاد پیش‌نمایش پیام",callback_data:"richv2:preview"}],[{text:"🏷 ویرایش عنوان پیام",callback_data:"richv2:title"},{text:"❌ لغو",callback_data:"rich:cancel"}]);
+  rows.push([{text:"👁 ایجاد پیش‌نمایش پیام",callback_data:"richv2:preview"}],[{text:"💾 ذخیره قالب",callback_data:"templates:save"},{text:"🏷 ویرایش عنوان پیام",callback_data:"richv2:title"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]);
   return {inline_keyboard:rows};
 }
 function richItemsKeyboard(data:any) {
