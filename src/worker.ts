@@ -743,9 +743,14 @@ async function handleUpdate(env:Env,update:any) {
       if(!t) return;
       const config=JSON.parse(t.config_json);
       if(config.richBuilder) {
-        const d={...config,templateId:id,richBuilder:true,headers:[],rows:[],richButtons:config.richButtons??[]};
-        await saveSession(env,user.id,"rich_table",d);
-        await send(env,chat,"🚀 قالب <b>"+esc(t.name)+"</b> آماده است. داده‌های جدول جدید رو بفرست یا «بدون جدول» رو انتخاب کن.",richStageKeyboard("table"));
+        const legacyItems=Array.isArray(config.richItems)?config.richItems:[
+          ...(Array.isArray(config.headers)&&config.headers.length&&Array.isArray(config.rows)&&config.rows.length?[{type:"table",headers:config.headers,rows:config.rows,caption:config.richCaption??""}]:[]),
+          ...(!config.headers?.length&&config.richCaption?[{type:"caption",text:config.richCaption}]:[]),
+          ...((config.richButtons??[]).length?[{type:"buttons",buttons:config.richButtons}]:[])
+        ];
+        const d={...config,templateId:id,richBuilder:true,richItems:legacyItems,headers:[],rows:[],richButtons:[]};
+        await saveSession(env,user.id,"rich_editor",d);
+        await send(env,chat,"🚀 قالب <b>"+esc(t.name)+"</b> بارگذاری شد. می‌توانی آیتم‌ها را ویرایش کنی یا بخش‌های جدید اضافه کنی.",richBuilderKeyboard(d));
       } else {
         await saveSession(env,user.id,"waiting_data",{...config,templateId:id,advanced:Boolean(config.advanced||config.layout)});
         await send(env,chat,"🚀 قالب <b>"+esc(t.name)+"</b> آماده است. داده‌های جدید را بفرست.");
