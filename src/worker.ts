@@ -256,6 +256,7 @@ function buildRichFallbackHtml(rich:any): string {
     if(b.type==="heading") out.push(richTextToHtml(b.text));
     else if(b.type==="paragraph") out.push(richTextToHtml(b.text));
     else if(b.type==="divider") out.push("────────────");
+    else if(b.type==="photo" || b.type==="video") out.push((b.type==="photo"?"🖼 ":"🎬 ")+`<a href="${esc(b.url)}">${esc(b.caption||b.url)}</a>`);
     else if(b.type==="footer") out.push("📌 "+richTextToHtml(b.text));
     else if(b.type==="table") {
       const rows=(b.cells ?? []).map((row:any[])=>row.map((cell:any)=>richTextToHtml(cell?.text ?? "")).join(" | "));
@@ -608,7 +609,7 @@ async function handleUpdate(env:Env,update:any) {
       }
       if(action==="skip") {
         const target=p[2]; const d={...session.data};
-        if(target==="title") { d.richTitle=""; d.richTitleBold=false; await saveSession(env,user.id,"rich_table",d); await send(env,chat,richBuilderPrompt("table"),richStageKeyboard("table")); }
+        if(target==="title") { d.richTitle=""; d.richTitleBold=false; await saveSession(env,user.id,"rich_editor",d); await edit(env,chat,cb.message.message_id,"🧩 <b>ویرایشگر پیام سفارشی</b>",richBuilderKeyboard(d)); }
         else if(target==="table") { d.headers=[]; d.rows=[]; await saveSession(env,user.id,"rich_caption",d); await send(env,chat,richBuilderPrompt("caption"),richStageKeyboard("caption")); }
         else if(target==="caption") { d.richCaption=""; d.richCaptionBold=false; await saveSession(env,user.id,"rich_buttons",d); await send(env,chat,richBuilderPrompt("buttons"),richStageKeyboard("buttons")); }
         else if(target==="buttons") { d.richButtons=[]; await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,cb.message.message_id,d); }
@@ -802,10 +803,60 @@ async function handleUpdate(env:Env,update:any) {
       return;
     }
     if(session?.state==="rich_title" && message.text) {
-      const value=message.text.trim(); const d={...session.data,richTitle:value==="-"?"":value};
-      if(!d.richTitle) { d.richTitleBold=false; await saveSession(env,user.id,"rich_table",d); await send(env,chat,richBuilderPrompt("table"),richStageKeyboard("table")); }
-      else { await saveSession(env,user.id,"rich_title_style",d); await send(env,chat,"🎨 عنوان رو چطور نمایش بدیم؟",richStageKeyboard("title_style")); }
+      const value=message.text.trim(); const d={...session.data,richTitle:value==="-"?"":value,richItems:session.data.richItems??[]};
+      await saveSession(env,user.id,"rich_editor",d);
+      await send(env,chat,"🧩 <b>ویرایشگر پیام سفارشی</b>\n\nعنوان ثبت شد. حالا هر تعداد آیتم می‌خواهی اضافه کن و ترتیبشان را مدیریت کن.",richBuilderKeyboard(d));
       return;
+    }
+    if(session?.state==="rich_edit_title" && message.text) {
+      const value=message.text.trim(); const d={...session.data,richTitle:value==="-"?"":value};
+      await saveSession(env,user.id,"rich_editor",d); await send(env,chat,"✅ عنوان پیام به‌روزرسانی شد.",richBuilderKeyboard(d)); return;
+    }
+    if(session?.state==="rich_item_input" && message.text) {
+      const type=String(session.data.richDraftType||"text"); const value=message.text.trim();
+      if(!value) { await send(env,chat,"⚠️ محتوا خالی است. دوباره بفرست.",richStageKeyboard(type)); return; }
+      let item:any;
+      if(type==="photo"||type==="video") {
+        const [url,...captionParts]=value.split("|"); const mediaUrl=url.trim();
+        if(!/^https?:\/\//i.test(mediaUrl)) { await send(env,chat,"⚠️ لینک رسانه باید با http:// یا https:// شروع شود.",richStageKeyboard(type)); return; }
+        item={type,url:mediaUrl,caption:captionParts.join("|").trim()};
+      } else if(type==="heading"||type==="text"||type==="caption"||type==="quote") {
+        item={type,text:value==="-"?"":value};
+        if(!item.text) { await send(env,chat,"⚠️ متن آیتم خالی است.",richStageKeyboard(type)); return; }
+      } else { await send(env,chat,"⚠️ نوع آیتم پشتیبانی نمی‌شود."); return; }
+      const d={...session.data,richItems:[...(session.data.richItems??[])]};
+      if(Number.isInteger(d.richEditIndex)) d.richItems[d.richEditIndex]=item; else d.richItems.push(item);
+      delete d.richDraftType; delete d.richEditIndex;
+      await saveSession(env,user.id,"rich_editor",d); await send(env,chat,"✅ آیتم به پیام اضافه شد.",richBuilderKeyboard(d)); return;
+    }
+    if(session?.state==="rich_item_table" && message.text) {
+      try {
+        const table=parseTable(message.text.trim()); const d={...session.data,richDraftItem:{type:"table",...table}};
+        await saveSession(env,user.id,"rich_item_table_caption",d);
+        await send(env,chat,richBuilderPrompt("caption"),richStageKeyboard("caption"));
+      } catch(e:any) { await send(env,chat,"⚠️ "+esc(e?.message||"ساخت جدول ناموفق بود.")+"\n\nاطلاعات جدول را دوباره بفرست.",richStageKeyboard("table")); }
+      return;
+    }
+    if(session?.state==="rich_item_table_caption" && message.text) {
+      const d={...session.data,richItems:[...(session.data.richItems??[])]};
+      const item={...(d.richDraftItem??{}),caption:message.text.trim()==="-"?"":message.text.trim()};
+      if(Number.isInteger(d.richEditIndex)) d.richItems[d.richEditIndex]=item; else d.richItems.push(item);
+      delete d.richDraftItem; delete d.richDraftType; delete d.richEditIndex;
+      await saveSession(env,user.id,"rich_editor",d); await send(env,chat,"✅ جدول و کپشن آن ثبت شد.",richBuilderKeyboard(d)); return;
+    }
+    if(session?.state==="rich_item_buttons" && message.text) {
+      const lines=message.text.split(/\r?\n/).map((x:string)=>x.trim()).filter(Boolean);
+      const buttons:any[]=[];
+      for(const line of lines) {
+        const parts=line.split("|"); const text=parts.shift()?.trim()||""; const url=parts.join("|").trim();
+        if(!text||!/^https?:\/\//i.test(url)) { await send(env,chat,"⚠️ هر خط باید به شکل <code>عنوان دکمه | https://example.com</code> باشد.",richStageKeyboard("buttons")); return; }
+        buttons.push({text:text.slice(0,64),url,style:"primary"});
+      }
+      if(!buttons.length||buttons.length>8) { await send(env,chat,"⚠️ بین ۱ تا ۸ دکمه وارد کن.",richStageKeyboard("buttons")); return; }
+      const d={...session.data,richItems:[...(session.data.richItems??[])]}; const item={type:"buttons",buttons};
+      if(Number.isInteger(d.richEditIndex)) d.richItems[d.richEditIndex]=item; else d.richItems.push(item);
+      delete d.richDraftType; delete d.richEditIndex;
+      await saveSession(env,user.id,"rich_editor",d); await send(env,chat,"✅ دکمه‌ها ثبت شدند.",richBuilderKeyboard(d)); return;
     }
     if(session?.state==="rich_table" && message.text) {
       try { const table=parseTable(message.text.trim()); const d={...session.data,...table}; await saveSession(env,user.id,"rich_caption",d); await send(env,chat,richBuilderPrompt("caption"),richStageKeyboard("caption")); }
