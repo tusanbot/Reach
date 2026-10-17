@@ -256,7 +256,7 @@ function buildRichFallbackHtml(rich:any): string {
     if(b.type==="heading") out.push(richTextToHtml(b.text));
     else if(b.type==="paragraph") out.push(richTextToHtml(b.text));
     else if(b.type==="divider") out.push("────────────");
-    else if(b.type==="photo" || b.type==="video") out.push((b.type==="photo"?"🖼 ":"🎬 ")+`<a href="${esc(b.url)}">${esc(b.caption||b.url)}</a>`);
+    else if(b.type==="photo" || b.type==="video") out.push((b.type==="photo"?"🖼 ":"🎬 ")+esc(b.caption || b.photo?.media || b.video?.media || "رسانه پیوست‌شده"));
     else if(b.type==="footer") out.push("📌 "+richTextToHtml(b.text));
     else if(b.type==="table") {
       const rows=(b.cells ?? []).map((row:any[])=>row.map((cell:any)=>richTextToHtml(cell?.text ?? "")).join(" | "));
@@ -393,7 +393,7 @@ function richBuilderButtons(data:any) {
 }
 function buildSimpleRichMessage(data:any): any {
   const blocks:any[]=[];
-  const items=Array.isArray(data.richItems) ? data.richItems : [
+  const items=Array.isArray(data.richItems) ? [...(data.richTitle ? [{type:"heading",text:data.richTitle,bold:data.richTitleBold}] : []),...data.richItems] : [
     ...(data.richTitle ? [{type:"heading",text:data.richTitle,bold:data.richTitleBold}] : []),
     ...(Array.isArray(data.headers)&&data.headers.length&&Array.isArray(data.rows)&&data.rows.length ? [{type:"table",headers:data.headers,rows:data.rows,caption:data.richCaption,bold:data.richCaptionBold}] : []),
     ...(data.richCaption&&!data.headers?.length ? [{type:"text",text:data.richCaption,bold:data.richCaptionBold}] : []),
@@ -409,8 +409,8 @@ function buildSimpleRichMessage(data:any): any {
       const table:any={type:"table",cells,is_bordered:true,is_striped:true,is_compact:false};
       if(String(item.caption??"").trim()) table.caption=richText(String(item.caption).trim(),Boolean(item.bold));
       blocks.push(table);
-    } else if((item.type==="photo"||item.type==="video") && /^https?:\/\//i.test(String(item.url??""))){
-      const media={type:item.type,media:String(item.url).trim()};
+    } else if((item.type==="photo"||item.type==="video") && (item.fileId || /^https?:\/\//i.test(String(item.url??"")))){
+      const media={type:item.type,media:item.fileId ? String(item.fileId) : String(item.url).trim()};
       blocks.push(item.type==="photo" ? {type:"photo",photo:media,...(item.caption?{caption:{text:String(item.caption)}}:{})} : {type:"video",video:media,...(item.caption?{caption:{text:String(item.caption)}}:{})});
     } else if(item.type==="buttons"){
       const buttons=(item.buttons??[]).filter((b:any)=>b?.text&&b?.url);
@@ -466,8 +466,8 @@ function richBuilderPrompt(stage:string) {
     table:"📊 <b>ساخت جدول</b>\n\nخط اول نام ستون‌هاست و ستون‌ها را با | جدا کن.\n<code>بازیکن | امتیاز | برد\nعلی | 1250 | 18\nمهدی | 1180 | 16</code>",
     caption:"💬 <b>کپشن جدول</b>\n\nمتن کپشن زیر جدول را بفرست؛ برای رد کردن «-» بفرست.",
     buttons:"🔘 <b>دکمه‌ها</b>\n\nهر دکمه را در یک خط با قالب <code>عنوان | https://example.com</code> بفرست.",
-    photo:"🖼 <b>افزودن عکس</b>\n\nلینک مستقیم HTTPS عکس را بفرست؛ در صورت نیاز کپشن را بعد از | اضافه کن.\n<code>https://example.com/photo.jpg | توضیح عکس</code>",
-    video:"🎬 <b>افزودن ویدیو</b>\n\nلینک مستقیم HTTPS ویدیو را بفرست؛ در صورت نیاز کپشن را بعد از | اضافه کن.\n<code>https://example.com/video.mp4 | توضیح ویدیو</code>",
+    photo:"🖼 <b>افزودن عکس</b>\n\nعکس را مستقیماً به‌صورت فایل ارسال کن یا لینک مستقیم HTTPS را بفرست. برای لینک، کپشن را بعد از | اضافه کن.\n<code>https://example.com/photo.jpg | توضیح عکس</code>",
+    video:"🎬 <b>افزودن ویدیو</b>\n\nویدیو را مستقیماً به‌صورت فایل ارسال کن یا لینک مستقیم HTTPS را بفرست. برای لینک، کپشن را بعد از | اضافه کن.\n<code>https://example.com/video.mp4 | توضیح ویدیو</code>",
     heading:"🏷 <b>افزودن تیتر</b>\n\nمتن تیتر را بفرست.",text:"📝 <b>افزودن متن</b>\n\nمتن را بفرست.",quote:"❝ <b>افزودن نقل‌قول</b>\n\nمتن نقل‌قول را بفرست."
   };
   return p[stage]||"محتوای آیتم را بفرست.";
@@ -811,6 +811,18 @@ async function handleUpdate(env:Env,update:any) {
     if(session?.state==="rich_edit_title" && message.text) {
       const value=message.text.trim(); const d={...session.data,richTitle:value==="-"?"":value};
       await saveSession(env,user.id,"rich_editor",d); await send(env,chat,"✅ عنوان پیام به‌روزرسانی شد.",richBuilderKeyboard(d)); return;
+    }
+    if(session?.state==="rich_item_input" && (message.photo || message.video)) {
+      const type=String(session.data.richDraftType||"");
+      if(!["photo","video"].includes(type)) { await send(env,chat,"⚠️ این فرم برای متن است. محتوای متنی را ارسال کن.",richStageKeyboard(type)); return; }
+      if(type==="photo" && !message.photo) { await send(env,chat,"⚠️ این آیتم منتظر عکس است؛ یک عکس بفرست.",richStageKeyboard(type)); return; }
+      if(type==="video" && !message.video) { await send(env,chat,"⚠️ این آیتم منتظر ویدیو است؛ یک ویدیو بفرست.",richStageKeyboard(type)); return; }
+      const fileId=type==="photo" ? message.photo[message.photo.length-1].file_id : message.video.file_id;
+      const item:any={type,fileId,caption:String(message.caption||"").trim()};
+      const d={...session.data,richItems:[...(session.data.richItems??[])]};
+      if(Number.isInteger(d.richEditIndex)) d.richItems[d.richEditIndex]=item; else d.richItems.push(item);
+      delete d.richDraftType; delete d.richEditIndex;
+      await saveSession(env,user.id,"rich_editor",d); await send(env,chat,"✅ رسانه به پیام اضافه شد.",richBuilderKeyboard(d)); return;
     }
     if(session?.state==="rich_item_input" && message.text) {
       const type=String(session.data.richDraftType||"text"); const value=message.text.trim();
