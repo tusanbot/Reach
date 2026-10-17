@@ -392,48 +392,87 @@ function richBuilderButtons(data:any) {
 }
 function buildSimpleRichMessage(data:any): any {
   const blocks:any[]=[];
-  const title=String(data.richTitle ?? "").trim();
-  const caption=String(data.richCaption ?? "").trim();
-  const headers=Array.isArray(data.headers) ? data.headers : [];
-  const rows=Array.isArray(data.rows) ? data.rows : [];
-  if(title) blocks.push({type:"heading",size:2,text:richText("🏷 "+title,Boolean(data.richTitleBold))});
-  if(headers.length && rows.length) {
-    const cells=[headers,...rows].map((row:any[],rowIndex:number)=>row.map((cell:any)=>({text:String(cell ?? ""),is_header:rowIndex===0,align:data.align==="center"?"center":data.align==="right"?"right":"left",valign:"middle"})));
-    const table:any={type:"table",cells,is_bordered:true,is_striped:true,is_compact:false};
-    if(caption) table.caption=richText(caption,Boolean(data.richCaptionBold));
-    blocks.push(table);
-  } else if(caption) blocks.push({type:"paragraph",text:richText(caption,Boolean(data.richCaptionBold))});
-  const buttons=(data.richButtons ?? []).filter((b:any)=>b?.text && b?.url);
-  for(let i=0;i<buttons.length;i+=4) blocks.push({type:"buttons",buttons:buttons.slice(i,i+4).map((b:any)=>({text:String(b.text).slice(0,64),style:["danger","success","primary","link"].includes(b.style)?b.style:"primary",url:String(b.url)})),align:"center"});
+  const items=Array.isArray(data.richItems) ? data.richItems : [
+    ...(data.richTitle ? [{type:"heading",text:data.richTitle,bold:data.richTitleBold}] : []),
+    ...(Array.isArray(data.headers)&&data.headers.length&&Array.isArray(data.rows)&&data.rows.length ? [{type:"table",headers:data.headers,rows:data.rows,caption:data.richCaption,bold:data.richCaptionBold}] : []),
+    ...(data.richCaption&&!data.headers?.length ? [{type:"text",text:data.richCaption,bold:data.richCaptionBold}] : []),
+    ...((data.richButtons??[]).length ? [{type:"buttons",buttons:data.richButtons}] : [])
+  ];
+  for(const item of items){
+    if(item.type==="heading" && String(item.text??"").trim()) blocks.push({type:"heading",size:2,text:richText(String(item.text).trim(),Boolean(item.bold))});
+    else if((item.type==="text"||item.type==="caption") && String(item.text??"").trim()) blocks.push({type:"paragraph",text:richText(String(item.text).trim(),Boolean(item.bold))});
+    else if(item.type==="quote" && String(item.text??"").trim()) blocks.push({type:"blockquote",blocks:[{type:"paragraph",text:String(item.text).trim()}]});
+    else if(item.type==="divider") blocks.push({type:"divider"});
+    else if(item.type==="table" && Array.isArray(item.headers) && item.headers.length && Array.isArray(item.rows)){
+      const cells=[item.headers,...item.rows].map((row:any[],rowIndex:number)=>row.map((cell:any)=>({text:String(cell??""),is_header:rowIndex===0,align:data.align==="center"?"center":data.align==="right"?"right":"left",valign:"middle"})));
+      const table:any={type:"table",cells,is_bordered:true,is_striped:true,is_compact:false};
+      if(String(item.caption??"").trim()) table.caption=richText(String(item.caption).trim(),Boolean(item.bold));
+      blocks.push(table);
+    } else if((item.type==="photo"||item.type==="video") && /^https?:\/\//i.test(String(item.url??""))){
+      const media={type:item.type,media:String(item.url).trim()};
+      blocks.push(item.type==="photo" ? {type:"photo",photo:media,...(item.caption?{caption:{text:String(item.caption)}}:{})} : {type:"video",video:media,...(item.caption?{caption:{text:String(item.caption)}}:{})});
+    } else if(item.type==="buttons"){
+      const buttons=(item.buttons??[]).filter((b:any)=>b?.text&&b?.url);
+      for(let i=0;i<buttons.length;i+=8) blocks.push({type:"buttons",buttons:buttons.slice(i,i+8).map((b:any)=>({text:String(b.text).slice(0,64),style:["danger","success","primary","link"].includes(b.style)?b.style:"primary",url:String(b.url)})),align:"center"});
+    }
+  }
   return {blocks,is_rtl:true};
 }
-function richBuilderKeyboard() {
+function richBuilderKeyboard(data:any={}) {
+  const items=Array.isArray(data.richItems)?data.richItems:[];
+  const rows:any[]=[
+    [{text:"🏷 افزودن تیتر",callback_data:"richv2:add:heading"},{text:"📝 افزودن متن",callback_data:"richv2:add:text"}],
+    [{text:"📊 افزودن جدول",callback_data:"richv2:add:table"},{text:"💬 کپشن مستقل",callback_data:"richv2:add:caption"}],
+    [{text:"🖼 افزودن عکس",callback_data:"richv2:add:photo"},{text:"🎬 افزودن ویدیو",callback_data:"richv2:add:video"}],
+    [{text:"❝ نقل‌قول",callback_data:"richv2:add:quote"},{text:"➖ جداکننده",callback_data:"richv2:add:divider"}],
+    [{text:"🔘 افزودن دکمه‌ها",callback_data:"richv2:add:buttons"}]
+  ];
+  if(items.length) rows.push([{text:"↕️ جابه‌جایی و مدیریت آیتم‌ها ("+items.length+")",callback_data:"richv2:manage"}]);
+  rows.push([{text:"👁 ایجاد پیش‌نمایش پیام",callback_data:"richv2:preview"}],[{text:"🏷 ویرایش عنوان پیام",callback_data:"richv2:title"},{text:"❌ لغو",callback_data:"rich:cancel"}]);
+  return {inline_keyboard:rows};
+}
+function richItemsKeyboard(data:any) {
+  const items=Array.isArray(data.richItems)?data.richItems:[];
+  const labels:any={heading:"🏷 تیتر",text:"📝 متن",table:"📊 جدول",caption:"💬 کپشن",photo:"🖼 عکس",video:"🎬 ویدیو",quote:"❝ نقل‌قول",divider:"➖ جداکننده",buttons:"🔘 دکمه‌ها"};
+  const rows:any[]=items.map((item:any,i:number)=>[
+    {text:(i+1)+". "+(labels[item.type]||"آیتم"),callback_data:"richv2:actions:"+i},
+    {text:"⬆️",callback_data:"richv2:up:"+i},{text:"⬇️",callback_data:"richv2:down:"+i}
+  ]);
+  rows.push([{text:"↩️ بازگشت به ویرایشگر",callback_data:"richv2:editor"}]);
+  return {inline_keyboard:rows};
+}
+function richItemActionsKeyboard(index:number) {
   return {inline_keyboard:[
-    [{text:"🚀 ساخت پیام",callback_data:"rich:publish"},{text:"🔄 شروع دوباره",callback_data:"rich:restart"}],
-    [{text:"🏷 عنوان",callback_data:"rich:edit:title"},{text:"📊 جدول",callback_data:"rich:edit:table"}],
-    [{text:"💬 توضیحات",callback_data:"rich:edit:caption"},{text:"🔘 دکمه‌ها",callback_data:"rich:edit:buttons"}],
-    [{text:"💾 ذخیره قالب",callback_data:"templates:save"},{text:"❌ لغو",callback_data:"rich:cancel"}]
+    [{text:"⬆️ رفت به بالا",callback_data:"richv2:up:"+index},{text:"⬇️ رفت به پایین",callback_data:"richv2:down:"+index}],
+    [{text:"⏫ رفت به اولین",callback_data:"richv2:top:"+index},{text:"⏬ رفت به آخرین",callback_data:"richv2:bottom:"+index}],
+    [{text:"✏️ ویرایش",callback_data:"richv2:edit:"+index},{text:"🗑 حذف",callback_data:"richv2:delete:"+index}],
+    [{text:"↩️ فهرست آیتم‌ها",callback_data:"richv2:manage"}]
+  ]};
+}
+function richPreviewKeyboard() {
+  return {inline_keyboard:[
+    [{text:"✅ تأیید و ساخت پیام",callback_data:"richv2:publish"}],
+    [{text:"↩️ بازگشت به ویرایشگر",callback_data:"richv2:editor"},{text:"↕️ ترتیب آیتم‌ها",callback_data:"richv2:manage"}],
+    [{text:"❌ لغو",callback_data:"rich:cancel"}]
   ]};
 }
 function richStageKeyboard(stage:string) {
-  if(stage==="title") return {inline_keyboard:[[{text:"⏭️ بدون عنوان",callback_data:"rich:skip:title"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
-  if(stage==="title_style") return {inline_keyboard:[[{text:"🅱️ بولد",callback_data:"rich:title:bold"},{text:"🔤 معمولی",callback_data:"rich:title:normal"}],[{text:"🗑 حذف عنوان",callback_data:"rich:skip:title"},{text:"↩️ دوباره",callback_data:"rich:edit:title"}]]};
-  if(stage==="table") return {inline_keyboard:[[{text:"⏭️ بدون جدول",callback_data:"rich:skip:table"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
-  if(stage==="caption") return {inline_keyboard:[[{text:"⏭️ بدون توضیحات",callback_data:"rich:skip:caption"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
-  if(stage==="caption_style") return {inline_keyboard:[[{text:"🅱️ بولد",callback_data:"rich:caption:bold"},{text:"🔤 معمولی",callback_data:"rich:caption:normal"}],[{text:"🗑 حذف توضیحات",callback_data:"rich:skip:caption"},{text:"↩️ دوباره",callback_data:"rich:edit:caption"}]]};
-  return {inline_keyboard:[[{text:"⏭️ بدون دکمه",callback_data:"rich:skip:buttons"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]]};
+  return {inline_keyboard:stage==="title" ? [[{text:"⏭️ بدون عنوان",callback_data:"rich:skip:title"}],[{text:"❌ لغو",callback_data:"rich:cancel"}]] : [[{text:"↩️ بازگشت به ویرایشگر",callback_data:"richv2:editor"},{text:"❌ لغو",callback_data:"rich:cancel"}]]};
 }
 function richBuilderPrompt(stage:string) {
   const p:any={
-    title:"🏷 <b>مرحله ۱ از ۴ · عنوان</b>\n\nعنوان پیام رو بفرست.\nمی‌تونی این مرحله رو هم خالی بذاری.",
-    table:"📊 <b>مرحله ۲ از ۴ · جدول</b>\n\nاطلاعات جدول رو بفرست. خط اول نام ستون‌هاست و <code>|</code> ستون‌ها رو جدا می‌کنه.\n\n<code>بازیکن | امتیاز | برد\nعلی | 1250 | 18\nمهدی | 1180 | 16</code>",
-    caption:"💬 <b>مرحله ۳ از ۴ · توضیحات زیر جدول</b>\n\nمتن کپشن یا توضیحی که می‌خوای زیر جدول نمایش داده بشه رو بفرست.",
-    buttons:"🔘 <b>مرحله ۴ از ۴ · دکمه</b>\n\nاول عنوان دکمه رو بفرست؛ بعد لینک دکمه رو جداگانه می‌فرستی.\n\nمثلاً:\n<code>🌐 مشاهده سایت</code>\nبعد: <code>https://example.com</code>\n\nاگر چند دکمه می‌خوای، بعد از ثبت هر دکمه دوباره عنوان دکمه بعدی رو بفرست.\n\nهمچنین می‌تونی چند دکمه رو یکجا با فرمت <code>عنوان | لینک</code> ارسال کنی.\nبرای رد کردن این مرحله «-» بفرست."
+    title:"🏷 <b>عنوان پیام</b>\n\nعنوان اصلی پیام را بفرست؛ اگر نمی‌خواهی عنوان داشته باشد، «-» بفرست.",
+    table:"📊 <b>ساخت جدول</b>\n\nخط اول نام ستون‌هاست و ستون‌ها را با | جدا کن.\n<code>بازیکن | امتیاز | برد\nعلی | 1250 | 18\nمهدی | 1180 | 16</code>",
+    caption:"💬 <b>کپشن جدول</b>\n\nمتن کپشن زیر جدول را بفرست؛ برای رد کردن «-» بفرست.",
+    buttons:"🔘 <b>دکمه‌ها</b>\n\nهر دکمه را در یک خط با قالب <code>عنوان | https://example.com</code> بفرست.",
+    photo:"🖼 <b>افزودن عکس</b>\n\nلینک مستقیم HTTPS عکس را بفرست؛ در صورت نیاز کپشن را بعد از | اضافه کن.\n<code>https://example.com/photo.jpg | توضیح عکس</code>",
+    video:"🎬 <b>افزودن ویدیو</b>\n\nلینک مستقیم HTTPS ویدیو را بفرست؛ در صورت نیاز کپشن را بعد از | اضافه کن.\n<code>https://example.com/video.mp4 | توضیح ویدیو</code>",
+    heading:"🏷 <b>افزودن تیتر</b>\n\nمتن تیتر را بفرست.",text:"📝 <b>افزودن متن</b>\n\nمتن را بفرست.",quote:"❝ <b>افزودن نقل‌قول</b>\n\nمتن نقل‌قول را بفرست."
   };
-  return p[stage];
+  return p[stage]||"محتوای آیتم را بفرست.";
 }
 async function startSimpleRichBuilder(env:Env,chat:number,userId:number) {
-  await saveSession(env,userId,"rich_title",{kind:"table",advanced:false,richBuilder:true,richTitle:"",richTitleBold:true,headers:[],rows:[],richCaption:"",richCaptionBold:false,richButtons:[],style:"classic",align:"left"});
+  await saveSession(env,userId,"rich_title",{kind:"table",advanced:false,richBuilder:true,richTitle:"",richTitleBold:true,richItems:[],headers:[],rows:[],richCaption:"",richCaptionBold:false,richButtons:[],style:"classic",align:"left"});
   await send(env,chat,richBuilderPrompt("title"),richStageKeyboard("title"));
 }
 async function sendSimpleRichMessage(env:Env,chat:number,rich:any,data:any) {
@@ -447,11 +486,11 @@ async function sendSimpleRichMessage(env:Env,chat:number,rich:any,data:any) {
 
 async function showSimpleRichPreview(env:Env,chat:number,message:number,data:any) {
   const rich_message=buildSimpleRichMessage(data);
-  if(!rich_message.blocks.length) { await edit(env,chat,message,"⚠️ هنوز هیچ محتوایی برای پیام انتخاب نکردی.",richBuilderKeyboard()); return; }
-  try { await tg(env,"editMessageText",{chat_id:chat,message_id:message,rich_message,reply_markup:richBuilderKeyboard()}); }
+  if(!rich_message.blocks.length) { await edit(env,chat,message,"⚠️ هنوز محتوایی اضافه نشده است. ابتدا آیتم اضافه کن.",richBuilderKeyboard(data)); return; }
+  try { await tg(env,"editMessageText",{chat_id:chat,message_id:message,rich_message,reply_markup:richPreviewKeyboard()}); }
   catch(error) {
     await runtimeLog(env,"warn","RICH_SIMPLE_PREVIEW_FALLBACK",{message:error instanceof Error ? error.message : String(error)});
-    await edit(env,chat,message,buildRichFallbackHtml(rich_message),richBuilderKeyboard());
+    await edit(env,chat,message,buildRichFallbackHtml(rich_message),richPreviewKeyboard());
   }
 }
 
@@ -508,6 +547,45 @@ async function handleUpdate(env:Env,update:any) {
         const d={...session.data,style};
         await saveSession(env,user.id,"preview",d);
         await showPreview(env,chat,cb.message.message_id,d);
+      }
+      return;
+    }
+    if(data.startsWith("richv2:") && session?.data?.richBuilder) {
+      const p=data.split(":"); const action=p[1]; const d={...session.data}; const items=Array.isArray(d.richItems)?[...d.richItems]:[];
+      if(action==="editor") { await saveSession(env,user.id,"rich_editor",d); await edit(env,chat,cb.message.message_id,"🧩 <b>ویرایشگر پیام سفارشی</b>\n\nبرای افزودن هر بخش، دکمه‌اش را انتخاب کن. آیتم‌ها به ترتیب اضافه‌شدن در پیام قرار می‌گیرند.",richBuilderKeyboard(d)); return; }
+      if(action==="title") { await saveSession(env,user.id,"rich_edit_title",d); await send(env,chat,"🏷 <b>عنوان پیام</b>\n\nعنوان جدید را بفرست؛ برای حذف «-» بفرست.",richStageKeyboard("title")); return; }
+      if(action==="add" && p[2]) {
+        const type=p[2];
+        if(type==="divider") { items.push({type:"divider"}); d.richItems=items; await saveSession(env,user.id,"rich_editor",d); await edit(env,chat,cb.message.message_id,"✅ جداکننده اضافه شد.",richBuilderKeyboard(d)); return; }
+        if(!["heading","text","table","caption","photo","video","quote","buttons"].includes(type)) return;
+        d.richDraftType=type; delete d.richEditIndex;
+        await saveSession(env,user.id,type==="table"?"rich_item_table":type==="buttons"?"rich_item_buttons":"rich_item_input",d);
+        await send(env,chat,richBuilderPrompt(type),richStageKeyboard(type)); return;
+      }
+      if(action==="manage") { await edit(env,chat,cb.message.message_id,"↕️ <b>مدیریت ترتیب آیتم‌ها</b>\n\nهر ردیف یک آیتم است. از فلش‌ها برای جابه‌جایی سریع و از منوی آیتم برای انتقال به ابتدا/انتها، ویرایش یا حذف استفاده کن.",richItemsKeyboard(d)); return; }
+      if(action==="actions") { const i=Number(p[2]); if(!items[i]) return; await edit(env,chat,cb.message.message_id,"⚙️ <b>عملیات آیتم "+(i+1)+"</b>",richItemActionsKeyboard(i)); return; }
+      if(["up","down","top","bottom","delete"].includes(action)) {
+        const i=Number(p[2]); if(!Number.isInteger(i)||i<0||i>=items.length) return;
+        const [item]=items.splice(i,1);
+        if(action==="up") items.splice(Math.max(0,i-1),0,item);
+        else if(action==="down") items.splice(Math.min(items.length,i+1),0,item);
+        else if(action==="top") items.unshift(item);
+        else if(action==="bottom") items.push(item);
+        d.richItems=items; await saveSession(env,user.id,"rich_editor",d);
+        await edit(env,chat,cb.message.message_id,action==="delete"?"🗑 آیتم حذف شد.":"✅ ترتیب آیتم‌ها به‌روزرسانی شد.",richItemsKeyboard(d)); return;
+      }
+      if(action==="edit") {
+        const i=Number(p[2]); const item=items[i]; if(!item) return;
+        d.richDraftType=item.type; d.richEditIndex=i;
+        if(item.type==="divider") { await answer(env,id,"برای جداکننده محتوایی وجود ندارد؛ آن را حذف یا جابه‌جا کن.",true); return; }
+        await saveSession(env,user.id,item.type==="table"?"rich_item_table":item.type==="buttons"?"rich_item_buttons":"rich_item_input",d);
+        await send(env,chat,richBuilderPrompt(item.type),richStageKeyboard(item.type)); return;
+      }
+      if(action==="preview") { await saveSession(env,user.id,"rich_preview",d); await showSimpleRichPreview(env,chat,cb.message.message_id,d); return; }
+      if(action==="publish") {
+        const rich=buildSimpleRichMessage(d);
+        if(!rich.blocks.length) { await answer(env,id,"حداقل یک آیتم به پیام اضافه کن.",true); return; }
+        await clearSession(env,user.id); await sendSimpleRichMessage(env,chat,rich,d); await send(env,chat,"📤 پیام نهایی ساخته شد و آماده فوروارد است.",mainKeyboard(lang,admin)); return;
       }
       return;
     }
